@@ -17,26 +17,26 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
       }
     }
 
-    // Resolve base domain redirects
+    console.log(`[${sourceConfig.name}] Derived search terms:`, Array.from(searchTerms));
+
+    // Resolve base URL redirect
     await page.goto(sourceConfig.baseUrl, { 
       timeout: browserConfig.pageTimeoutMs, 
       waitUntil: 'domcontentloaded' 
     }).catch(() => {});
 
     const actualBaseUrl = page.url();
-    const urlsToScan = new Set();
+    console.log(`[${sourceConfig.name}] Resolved base URL: ${actualBaseUrl}`);
 
-    // Prioritize direct search paths over root homepage
+    const urlsToScan = new Set();
     for (const term of searchTerms) {
       const slug = term.replace(/\s+/g, '-');
       urlsToScan.add(new URL(`/finding-${slug}-stream`, actualBaseUrl).href);
     }
-    
-    // Fallback to actual base URL
     urlsToScan.add(actualBaseUrl);
 
     for (const targetUrl of urlsToScan) {
-      console.log(`[${sourceConfig.name}] Checking route: ${targetUrl}`);
+      console.log(`[${sourceConfig.name}] Navigating to: ${targetUrl}`);
       try {
         await page.goto(targetUrl, { 
           timeout: browserConfig.pageTimeoutMs, 
@@ -45,8 +45,13 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
 
         await page.waitForTimeout(2500);
 
-        // Target all match anchors (both collapse triggers and standard match links)
+        // Debug: Log total links found on the page
+        const allAnchors = await page.locator('a').all();
+        console.log(`[${sourceConfig.name}] Total <a> elements on page: ${allAnchors.length}`);
+
+        // Query potential match links
         const matchAnchors = await page.locator('a.btn[title], a[data-bs-toggle="collapse"], a[href*="/baseball/"]').all();
+        console.log(`[${sourceConfig.name}] Candidate match anchors found: ${matchAnchors.length}`);
 
         for (const anchor of matchAnchors) {
           let text = await anchor.getAttribute('title').catch(() => null);
@@ -58,18 +63,20 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
           text = text.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
           if (text.length < 5 || text.length > 300) continue;
 
-          const matchedGroups = matchEvent(text, groups);
-          if (matchedGroups.length > 0) {
-            console.log(`[${sourceConfig.name}] Event match found: "${text}". Expanding stream options...`);
+          console.log(`[${sourceConfig.name}] Inspecting text: "${text}"`);
 
-            // Force-click to expand Bootstrap collapse
+          const matchedGroups = matchEvent(text, groups);
+          console.log(`[${sourceConfig.name}] Matcher result for "${text}":`, matchedGroups.length > 0 ? 'MATCH' : 'NO MATCH');
+
+          if (matchedGroups.length > 0) {
+            console.log(`[${sourceConfig.name}] Click-expanding accordion for match...`);
             await anchor.click().catch(() => {});
             await page.waitForTimeout(1200);
 
-            // Query button[data-openuri] elements dynamically rendered into the DOM
             const streamButtons = await page.locator('button[data-openuri]').all().catch(() => []);
-            const targetUrls = new Set();
+            console.log(`[${sourceConfig.name}] Found ${streamButtons.length} button[data-openuri] elements post-click.`);
 
+            const targetUrls = new Set();
             for (const btn of streamButtons) {
               const uri = await btn.getAttribute('data-openuri').catch(() => null);
               if (uri && uri.includes('-streaming-link-')) {
@@ -77,13 +84,14 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
               }
             }
 
-            // Fallback: If no accordion buttons found, use main href attribute
             if (targetUrls.size === 0) {
               const mainHref = await anchor.getAttribute('href').catch(() => null);
               if (mainHref && !mainHref.startsWith('javascript:')) {
                 targetUrls.add(new URL(mainHref, page.url()).href);
               }
             }
+
+            console.log(`[${sourceConfig.name}] Collected ${targetUrls.size} stream URLs for event.`);
 
             for (const playerUrl of targetUrls) {
               if (!eventLinksMap.has(playerUrl)) {
@@ -99,13 +107,13 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
 
         if (eventLinksMap.size > 0) break;
       } catch (err) {
-        console.log(`[${sourceConfig.name}] Error scanning ${targetUrl}:`, err.message);
+        console.log(`[${sourceConfig.name}] Scan error on ${targetUrl}:`, err.message);
       }
     }
 
-    console.log(`[${sourceConfig.name}] Found ${eventLinksMap.size} total player endpoints to inspect.`);
+    console.log(`[${sourceConfig.name}] Final total player endpoints to inspect: ${eventLinksMap.size}`);
 
-    // Inspect player endpoints for HLS stream manifests
+    // Inspect player endpoints
     for (const item of eventLinksMap.values()) {
       console.log(`[${sourceConfig.name}] Inspecting player page: ${item.href}`);
       const playerPage = await context.newPage();
