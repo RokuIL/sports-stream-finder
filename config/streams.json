@@ -4,8 +4,8 @@
   },
   "browser": {
     "headless": true,
-    "pageTimeoutMs": 30000,
-    "streamWaitMs": 15000
+    "pageTimeoutMs": 15000,
+    "streamWaitMs": 10000
   },
   "sources": [
     {
