@@ -18,13 +18,13 @@
       "name": "StreamedSu",
       "type": "streamedsu",
       "baseUrl": "https://streamed.pk/",
-      "enabled": true
+      "enabled": false
     },
     {
       "name": "DaddyLive",
       "type": "daddylive",
       "baseUrl": "https://dlhd.pk/",
-      "enabled": false
+      "enabled": true
     },
     {
       "name": "VipLeague",
