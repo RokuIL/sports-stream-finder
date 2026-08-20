@@ -27,14 +27,14 @@
       "matches": [
         "Seahawks"
       ],
-      "logo": ""
+      "logo": "https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Seahawks.png"
     },
     {
       "name": "Seattle",
       "matches": [
         "Mariners"
       ],
-      "logo": ""
+      "logo": "https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Mariners.png"
     }
   ]
 }
