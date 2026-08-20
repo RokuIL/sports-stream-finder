@@ -8,7 +8,6 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
   const eventLinksMap = new Map();
 
   try {
-    // Collect search keywords from groups
     const searchTerms = new Set();
     for (const group of groups) {
       if (group.keywords) {
@@ -18,12 +17,18 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
       }
     }
 
-    const urlsToScan = new Set([sourceConfig.baseUrl]);
+    // First visit base URL to capture actual domain (e.g. vipleague.vg after redirect)
+    await page.goto(sourceConfig.baseUrl, { 
+      timeout: browserConfig.pageTimeoutMs, 
+      waitUntil: 'domcontentloaded' 
+    }).catch(() => {});
 
-    // Construct direct VIPLeague search paths
+    const actualBaseUrl = page.url();
+    const urlsToScan = new Set([actualBaseUrl]);
+
     for (const term of searchTerms) {
       const slug = term.replace(/\s+/g, '-');
-      urlsToScan.add(new URL(`/finding-${slug}-stream`, sourceConfig.baseUrl).href);
+      urlsToScan.add(new URL(`/finding-${slug}-stream`, actualBaseUrl).href);
     }
 
     for (const targetUrl of urlsToScan) {
@@ -36,11 +41,14 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
 
         await page.waitForTimeout(2000);
 
-        // Select collapsible match links
-        const matchAnchors = await page.locator('a[data-bs-toggle="collapse"], a[href*="-streaming"]').all();
+        // Find all match anchors
+        const matchAnchors = await page.locator('a[data-bs-toggle="collapse"], a[title]').all();
 
         for (const anchor of matchAnchors) {
-          let text = await anchor.textContent().catch(() => null);
+          let text = await anchor.getAttribute('title').catch(() => null);
+          if (!text) {
+            text = await anchor.textContent().catch(() => null);
+          }
           if (!text) continue;
 
           text = text.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -48,30 +56,24 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
 
           const matchedGroups = matchEvent(text, groups);
           if (matchedGroups.length > 0) {
-            // Find accordion container target or sibling collapse element
-            const targetId = await anchor.getAttribute('data-bs-target').catch(() => null);
-            let container = null;
+            console.log(`[${sourceConfig.name}] Match found: ${text}. Expanding accordion...`);
 
-            if (targetId) {
-              container = page.locator(targetId);
-            } else {
-              // Fallback to parent container if data-bs-target isn't present
-              container = anchor.locator('..');
-            }
+            // Click the anchor to expand the Bootstrap collapse block
+            await anchor.click().catch(() => {});
+            await page.waitForTimeout(1000);
 
-            // Extract all data-openuri stream endpoints inside accordion
-            const streamButtons = await container.locator('button[data-openuri], a[data-openuri]').all().catch(() => []);
+            // Extract stream buttons anywhere on the page with data-openuri
+            const streamButtons = await page.locator('button[data-openuri]').all().catch(() => []);
             const targetUrls = new Set();
 
             for (const btn of streamButtons) {
               const uri = await btn.getAttribute('data-openuri').catch(() => null);
-              // Ignore external ads (like hai8g.com) and only keep internal relative stream links
-              if (uri && !uri.startsWith('http://') && !uri.startsWith('https://') && uri.includes('-streaming-link-')) {
+              if (uri && uri.includes('-streaming-link-')) {
                 targetUrls.add(new URL(uri, page.url()).href);
               }
             }
 
-            // Fallback: If no inline accordion buttons are found, fallback to main anchor href
+            // Fallback to primary href attribute if accordion failed to expand
             if (targetUrls.size === 0) {
               const mainHref = await anchor.getAttribute('href').catch(() => null);
               if (mainHref && !mainHref.startsWith('javascript:')) {
@@ -97,7 +99,7 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
 
     console.log(`[${sourceConfig.name}] Found ${eventLinksMap.size} total player endpoints to inspect.`);
 
-    // Process player targets and sniff HLS manifest URLs
+    // Process player targets
     for (const item of eventLinksMap.values()) {
       console.log(`[${sourceConfig.name}] Checking player page: ${item.href}`);
       const playerPage = await context.newPage();
@@ -106,7 +108,6 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
         const streamPromise = waitForHlsStream(playerPage, browserConfig.streamWaitMs);
         await playerPage.goto(item.href, { waitUntil: 'domcontentloaded' });
 
-        // If player loads an iframe, inspect internal iframe sources
         const iframes = await playerPage.locator('iframe').all().catch(() => []);
         const iframeTargets = new Set();
 
@@ -119,12 +120,11 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
 
         let streamData = await streamPromise;
 
-        // If no stream was caught on the parent page, try loading nested iframe targets directly
         if (!streamData && iframeTargets.size > 0) {
           for (const iframeUrl of iframeTargets) {
             const framePage = await context.newPage();
             try {
-              console.log(`[${sourceConfig.name}] Checking nested iframe target: ${iframeUrl}`);
+              console.log(`[${sourceConfig.name}] Checking nested iframe: ${iframeUrl}`);
               const frameStreamPromise = waitForHlsStream(framePage, browserConfig.streamWaitMs);
               await framePage.goto(iframeUrl, { waitUntil: 'domcontentloaded' });
 
