@@ -12,7 +12,7 @@
       "name": "LiveTV SX",
       "type": "livetv",
       "enabled": true,
-      "baseUrl": "https://livesxtv.com/"
+      "baseUrl": "https://livetv.sx/"
     },
     {
       "name": "MainPortal66",
@@ -35,6 +35,13 @@
         "Mariners"
       ],
       "logo": "https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Mariners.png"
+    },
+    {
+      "name": "Seattle",
+      "matches": [
+        "Sounders"
+      ],
+      "logo": "https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Sounders.png"
     }
   ]
 }
