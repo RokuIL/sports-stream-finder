@@ -65,8 +65,6 @@ export async function scrapeLiveTv(context, sourceConfig, groups, browserConfig)
 
         console.log(`[${sourceConfig.name}] Found ${uniquePlayerHrefs.size} player links for ${item.event}.`);
 
-        let streamCount = 0;
-
         // Process ALL player links to collect every valid stream
         for (const playerHref of uniquePlayerHrefs) {
           const playerUrl = new URL(playerHref, eventPage.url()).href;
@@ -79,12 +77,11 @@ export async function scrapeLiveTv(context, sourceConfig, groups, browserConfig)
             
             const streamData = await streamPromise;
             if (streamData) {
-              streamCount++;
-              console.log(`[${sourceConfig.name}] HLS stream #${streamCount} found: ${streamData.url}`);
+              console.log(`[${sourceConfig.name}] HLS stream found: ${streamData.url}`);
               for (const group of item.matchedGroups) {
                 streams.push({
                   group,
-                  event: `${item.event} (Stream ${streamCount})`,
+                  event: item.event,
                   source: sourceConfig.name,
                   url: streamData.url,
                   headers: streamData.headers,
