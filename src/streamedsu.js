@@ -1,40 +1,56 @@
 import { matchEvent } from './matcher.js';
 import { waitForHlsStream } from './browser.js';
 
+const MIRRORS = [
+  'https://streamed.pk/',
+  'https://streamed.st/',
+  'https://streamed.su/'
+];
+
 export async function scrapeStreamedSu(context, sourceConfig, groups, browserConfig) {
-  console.log(`[${sourceConfig.name}] Scanning ${sourceConfig.baseUrl} ...`);
   const streams = [];
   const page = await context.newPage();
+  const eventLinksMap = new Map();
 
-  try {
-    await page.goto(sourceConfig.baseUrl, { 
-      timeout: browserConfig.pageTimeoutMs,
-      waitUntil: 'domcontentloaded' 
-    });
+  const mirrorsToTry = [sourceConfig.baseUrl, ...MIRRORS.filter(m => m !== sourceConfig.baseUrl)];
 
-    await page.waitForSelector('a', { timeout: 5000 }).catch(() => {});
+  for (const baseUrl of mirrorsToTry) {
+    console.log(`[${sourceConfig.name}] Trying mirror ${baseUrl} ...`);
+    try {
+      await page.goto(baseUrl, { 
+        timeout: browserConfig.pageTimeoutMs,
+        waitUntil: 'domcontentloaded' 
+      });
 
-    const links = await page.locator('a').all();
-    const eventLinksMap = new Map();
+      await page.waitForSelector('a', { timeout: 5000 }).catch(() => {});
 
-    for (const link of links) {
-      let text = await link.textContent();
-      let href = await link.getAttribute('href');
+      const links = await page.locator('a').all();
 
-      if (text && href) {
-        text = text.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
-        if (text.length < 3 || href.startsWith('javascript:')) continue;
+      for (const link of links) {
+        let text = await link.textContent().catch(() => null);
+        let href = await link.getAttribute('href').catch(() => null);
 
-        const matchedGroups = matchEvent(text, groups);
-        if (matchedGroups.length > 0) {
-          const fullUrl = new URL(href, page.url()).href;
-          if (!eventLinksMap.has(fullUrl)) {
-            eventLinksMap.set(fullUrl, { event: text, href: fullUrl, matchedGroups });
+        if (text && href) {
+          text = text.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
+          if (text.length < 3 || href.startsWith('javascript:')) continue;
+
+          const matchedGroups = matchEvent(text, groups);
+          if (matchedGroups.length > 0) {
+            const fullUrl = new URL(href, page.url()).href;
+            if (!eventLinksMap.has(fullUrl)) {
+              eventLinksMap.set(fullUrl, { event: text, href: fullUrl, matchedGroups });
+            }
           }
         }
       }
-    }
 
+      if (eventLinksMap.size > 0) break; // Mirror succeeded
+    } catch (err) {
+      console.log(`[${sourceConfig.name}] Mirror ${baseUrl} failed:`, err.message);
+    }
+  }
+
+  try {
     for (const item of eventLinksMap.values()) {
       console.log(`[${sourceConfig.name}] Match found: ${item.event}`);
       const eventPage = await context.newPage();
@@ -86,7 +102,7 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
       }
     }
   } catch (err) {
-    console.error(`[${sourceConfig.name}] Error scanning site:`, err.message);
+    console.error(`[${sourceConfig.name}] Error processing site:`, err.message);
   } finally {
     await page.close();
   }
