@@ -2,11 +2,11 @@ import { matchEvent } from './matcher.js';
 import { waitForHlsStream } from './browser.js';
 
 const CATEGORY_PATHS = [
-//  '/categories/soccer',
-//  '/categories/football',
-//  '/categories/basketball',
+  // '/categories/soccer',
+  // '/categories/football',
+  // '/categories/basketball',
   '/categories/baseball',
-//  '/categories/other-events',
+  // '/categories/other-events',
   '/categories/cricket'
 ];
 
@@ -14,7 +14,7 @@ export async function scrapeCrackTv(context, sourceConfig, groups, browserConfig
   console.log(`[${sourceConfig.name}] Starting scan across category sub-pages on ${sourceConfig.baseUrl} ...`);
   const streams = [];
   const page = await context.newPage();
-  const eventLinksMap = new Map(); // Store unique matches by absolute URL
+  const eventLinksMap = new Map();
 
   try {
     // 1. Loop through category sub-pages to collect event links
@@ -76,16 +76,26 @@ export async function scrapeCrackTv(context, sourceConfig, groups, browserConfig
 
         const streamSources = new Set();
 
-        // Check player/stream anchor links (buttons, tabs, links)
+        // Extract custom data-uri attributes from stream buttons
+        const dataUriElements = await eventPage.locator('[data-uri]').all().catch(() => []);
+        for (const el of dataUriElements) {
+          const uri = await el.getAttribute('data-uri').catch(() => null);
+          if (uri && !uri.startsWith('javascript:')) {
+            try {
+              const fullUrl = new URL(uri, eventPage.url()).href;
+              streamSources.add(fullUrl);
+            } catch (e) {}
+          }
+        }
+
+        // Extract standard anchor/link elements
         const streamSelectors = [
           'a[href*="stream"]',
           'a[href*="server"]',
           'a[href*="player"]',
           'a[href*="embed"]',
-          'a[href*="link"]',
-          '.nav-tabs a',
-          '.buttons a',
-          '.stream-btn'
+          'a[href*="event"]',
+          'a[href*="live"]'
         ];
 
         for (const selector of streamSelectors) {
@@ -113,7 +123,6 @@ export async function scrapeCrackTv(context, sourceConfig, groups, browserConfig
           }
         }
 
-        // Fallback to checking the main event URL if no sub-players were located
         if (streamSources.size === 0) {
           streamSources.add(item.href);
         }
