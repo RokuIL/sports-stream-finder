@@ -16,7 +16,7 @@
     },
     {
       "name": "CrackTV",
-      "type": "mainportal",
+      "type": "cracktv",
       "baseUrl": "https://cracktv.me/",
       "enabled": true
     }
