@@ -1,7 +1,6 @@
 import { matchEvent } from './matcher.js';
 import { waitForHlsStream } from './browser.js';
 
-// Prioritize root '/' since dlhd.pk hosts its active schedule on the main landing page
 const SCHEDULE_PATHS = [
   '/',
   '/schedule/',
@@ -27,23 +26,27 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
 
         await page.waitForTimeout(3000);
 
-        // Target DaddyLive schedule cards, list items, and fallback rows
-        const cards = await page.locator('.event-item, .schedule-item, .event, .row-event, tr').all();
+        // Directly target DaddyLive's event containers
+        const events = await page.locator('.schedule__event').all();
 
-        for (const card of cards) {
-          let cardText = await card.textContent().catch(() => null);
-          if (!cardText) continue;
+        for (const eventCard of events) {
+          // Extract text from title element or data attribute
+          const header = eventCard.locator('.schedule__eventHeader');
+          let eventText = await header.getAttribute('data-title').catch(() => null);
 
-          // Clean up formatting
-          cardText = cardText.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
+          if (!eventText) {
+            eventText = await eventCard.locator('.schedule__eventTitle').textContent().catch(() => null);
+          }
 
-          // Reject page-level containers and tiny header fragments
-          if (cardText.length < 5 || cardText.length > 350) continue;
+          if (!eventText) continue;
 
-          const matchedGroups = matchEvent(cardText, groups);
+          eventText = eventText.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
+
+          const matchedGroups = matchEvent(eventText, groups);
           if (matchedGroups.length > 0) {
-            // Locate player/stream links contained within this specific card
-            const links = await card.locator('a[href]').all();
+            // Find links inside .schedule__channels (even if hidden)
+            const links = await eventCard.locator('.schedule__channels a[href], a[href]').all();
+
             for (const link of links) {
               const href = await link.getAttribute('href').catch(() => null);
               const linkText = await link.textContent().catch(() => '');
@@ -52,7 +55,7 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
                 const fullUrl = new URL(href, page.url()).href;
                 if (!eventLinksMap.has(fullUrl)) {
                   eventLinksMap.set(fullUrl, { 
-                    event: `${cardText} [${linkText.trim()}]`, 
+                    event: `${eventText} [${linkText.trim()}]`, 
                     href: fullUrl, 
                     matchedGroups 
                   });
@@ -68,7 +71,7 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
       }
     }
 
-    // Process matched event pages
+    // Process matched channel pages
     for (const item of eventLinksMap.values()) {
       console.log(`[${sourceConfig.name}] Target event match: ${item.event}`);
       const eventPage = await context.newPage();
@@ -108,7 +111,7 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
                 });
               }
               await streamPage.close();
-              break; // Stop after capturing the active player stream
+              break;
             }
           } catch (err) {
             console.log(`[${sourceConfig.name}] No stream detected on target: ${targetUrl}`);
