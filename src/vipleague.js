@@ -2,111 +2,107 @@ import { matchEvent } from './matcher.js';
 import { waitForHlsStream } from './browser.js';
 
 export async function scrapeVipLeague(context, sourceConfig, groups, browserConfig) {
-  console.log(`[${sourceConfig.name}] Scanning ${sourceConfig.baseUrl} ...`);
+  console.log(`[${sourceConfig.name}] Starting VIPLeague scraper...`);
   const streams = [];
   const page = await context.newPage();
   const eventLinksMap = new Map();
 
   try {
-    await page.goto(sourceConfig.baseUrl, { 
-      timeout: browserConfig.pageTimeoutMs,
-      waitUntil: 'domcontentloaded' 
-    });
+    // Collect search terms from groups to construct direct search URLs
+    const searchTerms = new Set();
+    for (const group of groups) {
+      if (group.keywords) {
+        for (const kw of group.keywords) {
+          if (kw.length > 3) searchTerms.add(kw.toLowerCase().trim());
+        }
+      }
+    }
 
-    const searchInput = page.locator('input[type="search"], input[name="q"], input[id*="search"], input[placeholder*="search" i]').first();
-    const isSearchVisible = await searchInput.isVisible().catch(() => false);
+    const urlsToScan = new Set([sourceConfig.baseUrl]);
 
-    if (isSearchVisible) {
-      console.log(`[${sourceConfig.name}] Search bar detected. Running search queries...`);
-      for (const group of groups) {
-        for (const keyword of (group.keywords || [])) {
-          if (!keyword || keyword.length < 3) continue;
-          try {
-            console.log(`[${sourceConfig.name}] Searching for: "${keyword}"`);
-            await searchInput.click();
-            await searchInput.fill('');
-            await searchInput.type(keyword, { delay: 100 });
-            await searchInput.dispatchEvent('input').catch(() => {});
-            await page.waitForTimeout(2000);
+    // Construct VIPLeague direct finding routes (e.g., /finding-mariners-stream)
+    for (const term of searchTerms) {
+      const slug = term.replace(/\s+/g, '-');
+      urlsToScan.add(new URL(`/finding-${slug}-stream`, sourceConfig.baseUrl).href);
+    }
 
-            // Scrape suggestion dropdowns / result cards
-            const searchResults = await page.locator('.search-results a, .autocomplete-suggestions a, .dropdown-menu a, div[class*="search"] a, a').all();
-            for (const link of searchResults) {
-              let text = await link.textContent().catch(() => null);
-              let href = await link.getAttribute('href').catch(() => null);
-              if (text && href) {
-                text = text.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
-                if (text.length < 3 || href.startsWith('javascript:')) continue;
+    for (const targetUrl of urlsToScan) {
+      console.log(`[${sourceConfig.name}] Checking search page: ${targetUrl}`);
+      try {
+        await page.goto(targetUrl, { 
+          timeout: browserConfig.pageTimeoutMs, 
+          waitUntil: 'domcontentloaded' 
+        });
 
-                const matchedGroups = matchEvent(text, groups);
-                if (matchedGroups.length > 0) {
-                  const fullUrl = new URL(href, page.url()).href;
-                  if (!eventLinksMap.has(fullUrl)) {
-                    eventLinksMap.set(fullUrl, { event: text, href: fullUrl, matchedGroups });
-                  }
-                }
+        await page.waitForTimeout(2000);
+
+        // Target VIPLeague event links/rows
+        const eventElements = await page.locator('a[href*="-stream"], .schedule-item, div[class*="event"]').all();
+
+        for (const el of eventElements) {
+          let text = await el.textContent().catch(() => null);
+          if (!text) continue;
+
+          text = text.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
+
+          // Reject date banners like "Friday, 21-08-2026" or short items
+          if (text.length < 6 || text.length > 250) continue;
+
+          const matchedGroups = matchEvent(text, groups);
+          if (matchedGroups.length > 0) {
+            const href = await el.getAttribute('href').catch(() => null);
+            if (href && !href.startsWith('javascript:') && !href.startsWith('#')) {
+              const fullUrl = new URL(href, page.url()).href;
+              if (!eventLinksMap.has(fullUrl)) {
+                eventLinksMap.set(fullUrl, {
+                  event: text,
+                  href: fullUrl,
+                  matchedGroups
+                });
               }
             }
-          } catch (sErr) {
-            console.log(`[${sourceConfig.name}] Search error for "${keyword}":`, sErr.message);
           }
         }
+      } catch (err) {
+        console.log(`[${sourceConfig.name}] Could not scan ${targetUrl}:`, err.message);
       }
     }
 
-    // Standard DOM link sweep
-    const links = await page.locator('a').all();
-    for (const link of links) {
-      let text = await link.textContent().catch(() => null);
-      let href = await link.getAttribute('href').catch(() => null);
-
-      if (text && href) {
-        text = text.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
-        if (text.length < 3 || href.startsWith('javascript:')) continue;
-
-        const matchedGroups = matchEvent(text, groups);
-        if (matchedGroups.length > 0) {
-          const fullUrl = new URL(href, page.url()).href;
-          if (!eventLinksMap.has(fullUrl)) {
-            eventLinksMap.set(fullUrl, { event: text, href: fullUrl, matchedGroups });
-          }
-        }
-      }
-    }
-
+    // Process matched event pages to locate player streams
     for (const item of eventLinksMap.values()) {
-      console.log(`[${sourceConfig.name}] Match found: ${item.event}`);
+      console.log(`[${sourceConfig.name}] Found event match: ${item.event}`);
       const eventPage = await context.newPage();
 
       try {
         await eventPage.goto(item.href, { waitUntil: 'domcontentloaded' });
+        await eventPage.waitForTimeout(2000);
 
-        const playerTargets = new Set();
-        const serverLinks = await eventPage.locator('a[href*="stream"], a[href*="player"], .btn').all().catch(() => []);
+        const targetsToScan = new Set([item.href]);
 
-        for (const sLink of serverLinks) {
-          const href = await sLink.getAttribute('href').catch(() => null);
-          if (href && !href.startsWith('javascript:') && !href.startsWith('#')) {
-            playerTargets.add(new URL(href, eventPage.url()).href);
+        // Capture server stream buttons or data-url targets
+        const playerButtons = await eventPage.locator('button[data-url], a[data-url], .btn-stream, .player-btn').all().catch(() => []);
+        for (const btn of playerButtons) {
+          const dataUrl = await btn.getAttribute('data-url').catch(() => null);
+          if (dataUrl && !dataUrl.startsWith('javascript:')) {
+            targetsToScan.add(new URL(dataUrl, eventPage.url()).href);
           }
         }
 
+        // Capture initial iframes
         const iframes = await eventPage.locator('iframe').all().catch(() => []);
         for (const frame of iframes) {
           const src = await frame.getAttribute('src').catch(() => null);
           if (src && !src.startsWith('about:') && !src.startsWith('javascript:')) {
-            playerTargets.add(new URL(src, eventPage.url()).href);
+            targetsToScan.add(new URL(src, eventPage.url()).href);
           }
         }
 
-        if (playerTargets.size === 0) playerTargets.add(item.href);
-
-        for (const targetUrl of playerTargets) {
+        for (const playerUrl of targetsToScan) {
           const streamPage = await context.newPage();
           try {
-            console.log(`[${sourceConfig.name}] Checking player: ${targetUrl}`);
+            console.log(`[${sourceConfig.name}] Checking player target: ${playerUrl}`);
             const streamPromise = waitForHlsStream(streamPage, browserConfig.streamWaitMs);
-            await streamPage.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+            await streamPage.goto(playerUrl, { waitUntil: 'domcontentloaded' });
 
             const streamData = await streamPromise;
             if (streamData) {
@@ -118,24 +114,24 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
                   source: sourceConfig.name,
                   url: streamData.url,
                   headers: streamData.headers,
-                  pageUrl: targetUrl
+                  pageUrl: playerUrl
                 });
               }
             }
           } catch (err) {
-            console.log(`[${sourceConfig.name}] No stream on target ${targetUrl}`);
+            console.log(`[${sourceConfig.name}] No stream on target: ${playerUrl}`);
           } finally {
-            await streamPage.close();
+            await streamPage.close().catch(() => {});
           }
         }
       } catch (err) {
-        console.error(`[${sourceConfig.name}] Error processing event ${item.event}:`, err.message);
+        console.error(`[${sourceConfig.name}] Error scanning event ${item.event}:`, err.message);
       } finally {
         await eventPage.close();
       }
     }
   } catch (err) {
-    console.error(`[${sourceConfig.name}] Error scanning site:`, err.message);
+    console.error(`[${sourceConfig.name}] Error in main scraper loop:`, err.message);
   } finally {
     await page.close();
   }
