@@ -17,19 +17,23 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
       }
     }
 
-    // First visit base URL to capture actual domain (e.g. vipleague.vg after redirect)
+    // Resolve base domain redirects
     await page.goto(sourceConfig.baseUrl, { 
       timeout: browserConfig.pageTimeoutMs, 
       waitUntil: 'domcontentloaded' 
     }).catch(() => {});
 
     const actualBaseUrl = page.url();
-    const urlsToScan = new Set([actualBaseUrl]);
+    const urlsToScan = new Set();
 
+    // Prioritize direct search paths over root homepage
     for (const term of searchTerms) {
       const slug = term.replace(/\s+/g, '-');
       urlsToScan.add(new URL(`/finding-${slug}-stream`, actualBaseUrl).href);
     }
+    
+    // Fallback to actual base URL
+    urlsToScan.add(actualBaseUrl);
 
     for (const targetUrl of urlsToScan) {
       console.log(`[${sourceConfig.name}] Checking route: ${targetUrl}`);
@@ -39,10 +43,10 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
           waitUntil: 'domcontentloaded' 
         });
 
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(2500);
 
-        // Find all match anchors
-        const matchAnchors = await page.locator('a[data-bs-toggle="collapse"], a[title]').all();
+        // Target all match anchors (both collapse triggers and standard match links)
+        const matchAnchors = await page.locator('a.btn[title], a[data-bs-toggle="collapse"], a[href*="/baseball/"]').all();
 
         for (const anchor of matchAnchors) {
           let text = await anchor.getAttribute('title').catch(() => null);
@@ -56,13 +60,13 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
 
           const matchedGroups = matchEvent(text, groups);
           if (matchedGroups.length > 0) {
-            console.log(`[${sourceConfig.name}] Match found: ${text}. Expanding accordion...`);
+            console.log(`[${sourceConfig.name}] Event match found: "${text}". Expanding stream options...`);
 
-            // Click the anchor to expand the Bootstrap collapse block
+            // Force-click to expand Bootstrap collapse
             await anchor.click().catch(() => {});
-            await page.waitForTimeout(1000);
+            await page.waitForTimeout(1200);
 
-            // Extract stream buttons anywhere on the page with data-openuri
+            // Query button[data-openuri] elements dynamically rendered into the DOM
             const streamButtons = await page.locator('button[data-openuri]').all().catch(() => []);
             const targetUrls = new Set();
 
@@ -73,7 +77,7 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
               }
             }
 
-            // Fallback to primary href attribute if accordion failed to expand
+            // Fallback: If no accordion buttons found, use main href attribute
             if (targetUrls.size === 0) {
               const mainHref = await anchor.getAttribute('href').catch(() => null);
               if (mainHref && !mainHref.startsWith('javascript:')) {
@@ -92,16 +96,18 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
             }
           }
         }
+
+        if (eventLinksMap.size > 0) break;
       } catch (err) {
-        console.log(`[${sourceConfig.name}] Error reading route ${targetUrl}:`, err.message);
+        console.log(`[${sourceConfig.name}] Error scanning ${targetUrl}:`, err.message);
       }
     }
 
     console.log(`[${sourceConfig.name}] Found ${eventLinksMap.size} total player endpoints to inspect.`);
 
-    // Process player targets
+    // Inspect player endpoints for HLS stream manifests
     for (const item of eventLinksMap.values()) {
-      console.log(`[${sourceConfig.name}] Checking player page: ${item.href}`);
+      console.log(`[${sourceConfig.name}] Inspecting player page: ${item.href}`);
       const playerPage = await context.newPage();
 
       try {
@@ -134,7 +140,7 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
                 break;
               }
             } catch (frameErr) {
-              console.log(`[${sourceConfig.name}] Frame inspect failed on ${iframeUrl}`);
+              console.log(`[${sourceConfig.name}] Error inspecting frame ${iframeUrl}`);
             } finally {
               await framePage.close().catch(() => {});
             }
@@ -155,13 +161,13 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
           }
         }
       } catch (err) {
-        console.error(`[${sourceConfig.name}] Error processing player ${item.href}:`, err.message);
+        console.error(`[${sourceConfig.name}] Error scanning player ${item.href}:`, err.message);
       } finally {
         await playerPage.close().catch(() => {});
       }
     }
   } catch (err) {
-    console.error(`[${sourceConfig.name}] Error in main scraper loop:`, err.message);
+    console.error(`[${sourceConfig.name}] Error in scraper execution:`, err.message);
   } finally {
     await page.close();
   }
