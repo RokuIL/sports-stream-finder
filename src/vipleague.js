@@ -6,6 +6,7 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
   const streams = [];
   const page = await context.newPage();
   const eventLinksMap = new Map();
+  const MAX_MATCHED_EVENTS = 3;
 
   try {
     const searchTerms = new Set();
@@ -54,8 +55,14 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
         await page.waitForTimeout(2500);
 
         const matchAnchors = await page.locator('a[data-bs-target], a[title], a[href*="/baseball/"]').all();
+        let matchedEventCount = 0;
 
         for (const anchor of matchAnchors) {
+          if (matchedEventCount >= MAX_MATCHED_EVENTS) {
+            console.log(`[${sourceConfig.name}] Reached cap of ${MAX_MATCHED_EVENTS} matched events. Stopping schedule scan.`);
+            break;
+          }
+
           let text = await anchor.getAttribute('title').catch(() => null);
           if (!text) {
             text = await anchor.textContent().catch(() => null);
@@ -68,24 +75,22 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
           const matchedGroups = matchEvent(text, groups);
 
           if (matchedGroups.length > 0) {
-            console.log(`[${sourceConfig.name}] Match found: "${text}". Triggering accordion...`);
+            matchedEventCount++;
+            console.log(`[${sourceConfig.name}] Match ${matchedEventCount}/${MAX_MATCHED_EVENTS}: "${text}". Triggering accordion...`);
 
             const targetId = await anchor.getAttribute('data-bs-target').catch(() => null);
 
-            // Trigger JS click directly on element
             await anchor.evaluate(el => el.click()).catch(() => {});
             await page.waitForTimeout(1500);
 
             let streamButtons = [];
 
-            // If we have a specific target ID (e.g. #675301905), query inside that container
             if (targetId) {
               const container = page.locator(targetId);
               await container.waitFor({ state: 'attached', timeout: 3000 }).catch(() => {});
               streamButtons = await container.locator('button[data-openuri]').all().catch(() => []);
             }
 
-            // Fallback query if targetId isn't present or container yielded 0 buttons
             if (streamButtons.length === 0) {
               streamButtons = await page.locator('button[data-openuri]').all().catch(() => []);
             }
@@ -100,7 +105,6 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
               }
             }
 
-            // Fallback to primary href if data-openuri buttons are missing
             if (targetUrls.size === 0) {
               const mainHref = await anchor.getAttribute('href').catch(() => null);
               if (mainHref && !mainHref.startsWith('javascript:') && !mainHref.startsWith('#')) {
@@ -128,7 +132,6 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
 
     console.log(`[${sourceConfig.name}] Total player endpoints collected to inspect: ${eventLinksMap.size}`);
 
-    // Inspect collected player endpoints
     for (const item of eventLinksMap.values()) {
       console.log(`[${sourceConfig.name}] Inspecting player page: ${item.href}`);
       const playerPage = await context.newPage();
