@@ -8,8 +8,7 @@
     "streamWaitMs": 15000
   },
   "sources": [
-{
-{
+    {
       "name": "LiveTV",
       "type": "livetv",
       "baseUrl": "https://livetv.sx/enx/",
