@@ -7,21 +7,43 @@ export async function scrapeLiveTv(context, sourceConfig, groups, browserConfig)
   const page = await context.newPage();
 
   try {
-    await page.goto(sourceConfig.baseUrl, { timeout: browserConfig.pageTimeoutMs });
+    // CHANGE 1: Use 'networkidle' to ensure we survive LiveTV's language redirects (e.g. to /enx/)
+    await page.goto(sourceConfig.baseUrl, { 
+      timeout: browserConfig.pageTimeoutMs,
+      waitUntil: 'networkidle' 
+    });
     
-    // Note: Selectors may need adjustment based on live DOM structure
+    // Fallback: Ensure <a> tags actually exist before we start iterating
+    await page.waitForSelector('a', { timeout: 5000 }).catch(() => console.log(`[${sourceConfig.name}] Warning: No links loaded fast enough.`));
+    
     const links = await page.locator('a').all();
     const eventLinks = [];
 
     for (const link of links) {
-      const text = await link.textContent();
-      const href = await link.getAttribute('href');
+      let text = await link.textContent();
+      let href = await link.getAttribute('href');
+      
       if (text && href) {
-        const matchedGroups = matchEvent(text.trim(), groups);
+        // CHANGE 2: Normalize the text. LiveTV uses heavy whitespace, newlines, and weird dashes.
+        text = text.replace(/[\n\t\r]/g, ' ')      // Remove line breaks and tabs
+                   .replace(/\s+/g, ' ')           // Collapse multiple spaces into one
+                   .replace(/[–—]/g, '-')          // Convert em/en-dashes to standard hyphens
+                   .trim();
+        
+        // Skip obvious navigation links to speed up processing
+        if (text.length < 5 || href.startsWith('javascript:')) continue;
+
+        const matchedGroups = matchEvent(text, groups);
         if (matchedGroups.length > 0) {
-          eventLinks.push({ event: text.trim(), href, matchedGroups });
+          eventLinks.push({ event: text, href, matchedGroups });
         }
+        // DEBUGGING TIP: If it still misses the game, uncomment the line below to see exactly how LiveTV is spelling the team names:
+        // else if (text.toLowerCase().includes('your_team_name')) { console.log(`[DEBUG] Found text but matcher failed: "${text}"`); }
       }
+    }
+
+    if (eventLinks.length === 0) {
+      console.log(`[${sourceConfig.name}] No matching events found on the page.`);
     }
 
     // Process matched events
@@ -30,7 +52,8 @@ export async function scrapeLiveTv(context, sourceConfig, groups, browserConfig)
       const eventPage = await context.newPage();
       
       try {
-        const urlToVisit = item.href.startsWith('http') ? item.href : new URL(item.href, sourceConfig.baseUrl).href;
+        // CHANGE 3: Handle LiveTV's highly relative URLs cleanly
+        const urlToVisit = new URL(item.href, page.url()).href; 
         
         // Start listening before navigating
         const streamPromise = waitForHlsStream(eventPage, browserConfig.streamWaitMs);
