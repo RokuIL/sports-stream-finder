@@ -1,10 +1,11 @@
 import { matchEvent } from './matcher.js';
 import { waitForHlsStream } from './browser.js';
 
+// Prioritize root '/' since dlhd.pk hosts its active schedule on the main landing page
 const SCHEDULE_PATHS = [
-  '/schedule/schedule-stream.php',
+  '/',
   '/schedule/',
-  '/'
+  '/schedule/schedule-stream.php'
 ];
 
 export async function scrapeDaddyLive(context, sourceConfig, groups, browserConfig) {
@@ -26,23 +27,24 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
 
         await page.waitForTimeout(3000);
 
-        // Strictly target individual table rows / schedule cards to avoid grabbing wrapper containers
-        const rows = await page.locator('tbody tr, table tr, .schedule-item').all();
+        // Target DaddyLive schedule cards, list items, and fallback rows
+        const cards = await page.locator('.event-item, .schedule-item, .event, .row-event, tr').all();
 
-        for (const row of rows) {
-          let rowText = await row.textContent().catch(() => null);
-          if (!rowText) continue;
+        for (const card of cards) {
+          let cardText = await card.textContent().catch(() => null);
+          if (!cardText) continue;
 
-          rowText = rowText.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
+          // Clean up formatting
+          cardText = cardText.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
 
-          // Filter out header rows, empty rows, and giant container text (> 300 chars)
-          if (rowText.length < 5 || rowText.length > 300) continue;
+          // Reject page-level containers and tiny header fragments
+          if (cardText.length < 5 || cardText.length > 350) continue;
 
-          const matchedGroups = matchEvent(rowText, groups);
+          const matchedGroups = matchEvent(cardText, groups);
           if (matchedGroups.length > 0) {
-            // Find links strictly belonging to THIS row/match entry
-            const rowLinks = await row.locator('a').all();
-            for (const link of rowLinks) {
+            // Locate player/stream links contained within this specific card
+            const links = await card.locator('a[href]').all();
+            for (const link of links) {
               const href = await link.getAttribute('href').catch(() => null);
               const linkText = await link.textContent().catch(() => '');
 
@@ -50,7 +52,7 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
                 const fullUrl = new URL(href, page.url()).href;
                 if (!eventLinksMap.has(fullUrl)) {
                   eventLinksMap.set(fullUrl, { 
-                    event: `${rowText} [${linkText.trim()}]`, 
+                    event: `${cardText} [${linkText.trim()}]`, 
                     href: fullUrl, 
                     matchedGroups 
                   });
@@ -62,16 +64,18 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
 
         if (eventLinksMap.size > 0) break;
       } catch (pathErr) {
-        console.log(`[${sourceConfig.name}] Schedule path ${path} error:`, pathErr.message);
+        console.log(`[${sourceConfig.name}] Path ${path} error:`, pathErr.message);
       }
     }
 
+    // Process matched event pages
     for (const item of eventLinksMap.values()) {
       console.log(`[${sourceConfig.name}] Target event match: ${item.event}`);
       const eventPage = await context.newPage();
 
       try {
         await eventPage.goto(item.href, { waitUntil: 'domcontentloaded' });
+        await eventPage.waitForTimeout(2000);
 
         const playerTargets = new Set([item.href]);
         const iframes = await eventPage.locator('iframe').all().catch(() => []);
@@ -103,11 +107,13 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
                   pageUrl: targetUrl
                 });
               }
+              await streamPage.close();
+              break; // Stop after capturing the active player stream
             }
           } catch (err) {
-            console.log(`[${sourceConfig.name}] No stream on target ${targetUrl}`);
+            console.log(`[${sourceConfig.name}] No stream detected on target: ${targetUrl}`);
           } finally {
-            await streamPage.close();
+            await streamPage.close().catch(() => {});
           }
         }
       } catch (err) {
