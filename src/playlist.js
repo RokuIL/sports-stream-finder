@@ -20,10 +20,10 @@ export function generatePlaylist(streams, outputPath) {
     const headerParams = [];
     
     if (stream.headers.referer) {
-      headerParams.push(`Referer="${stream.headers.referer}"`);
+      headerParams.push(`Referer=${stream.headers.referer}`);
     }
     if (stream.headers.origin) {
-      headerParams.push(`Origin="${stream.headers.origin}"`);
+      headerParams.push(`Origin=${stream.headers.origin}`);
     }
     
     if (headerParams.length > 0) {
