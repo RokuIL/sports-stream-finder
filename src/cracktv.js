@@ -2,11 +2,11 @@ import { matchEvent } from './matcher.js';
 import { waitForHlsStream } from './browser.js';
 
 const CATEGORY_PATHS = [
-  '/categories/soccer',
-  '/categories/football',
-  '/categories/basketball',
+//  '/categories/soccer',
+//  '/categories/football',
+//  '/categories/basketball',
   '/categories/baseball',
-  '/categories/other-events',
+//  '/categories/other-events',
   '/categories/cricket'
 ];
 
@@ -17,7 +17,7 @@ export async function scrapeCrackTv(context, sourceConfig, groups, browserConfig
   const eventLinksMap = new Map(); // Store unique matches by absolute URL
 
   try {
-    // 1. Loop through all category sub-pages to extract match links
+    // 1. Loop through category sub-pages to collect event links
     for (const catPath of CATEGORY_PATHS) {
       const categoryUrl = new URL(catPath, sourceConfig.baseUrl).href;
       console.log(`[${sourceConfig.name}] Scanning category page: ${categoryUrl}`);
@@ -66,55 +66,88 @@ export async function scrapeCrackTv(context, sourceConfig, groups, browserConfig
       console.log(`[${sourceConfig.name}] No matching events found across all categories.`);
     }
 
-    // 2. Process all unique matched event pages
+    // 2. Process each event page and extract ALL stream options
     for (const item of eventLinks) {
       console.log(`[${sourceConfig.name}] Match found: ${item.event}`);
       const eventPage = await context.newPage();
 
       try {
-        const streamPromise = waitForHlsStream(eventPage, browserConfig.streamWaitMs);
         await eventPage.goto(item.href, { waitUntil: 'domcontentloaded' });
 
-        let streamData = await streamPromise;
+        const streamSources = new Set();
 
-        // Fallback: check embedded player frames if no stream is caught on main link
-        if (!streamData) {
-          const iframes = await eventPage.locator('iframe').all();
-          for (const iframe of iframes) {
-            const src = await iframe.getAttribute('src');
-            if (src && !src.startsWith('about:')) {
-              const frameUrl = new URL(src, eventPage.url()).href;
-              console.log(`[${sourceConfig.name}] Inspecting embedded frame: ${frameUrl}`);
-              
-              const framePage = await context.newPage();
+        // Check player/stream anchor links (buttons, tabs, links)
+        const streamSelectors = [
+          'a[href*="stream"]',
+          'a[href*="server"]',
+          'a[href*="player"]',
+          'a[href*="embed"]',
+          'a[href*="link"]',
+          '.nav-tabs a',
+          '.buttons a',
+          '.stream-btn'
+        ];
+
+        for (const selector of streamSelectors) {
+          const streamElements = await eventPage.locator(selector).all().catch(() => []);
+          for (const el of streamElements) {
+            const href = await el.getAttribute('href').catch(() => null);
+            if (href && !href.startsWith('javascript:') && !href.startsWith('#')) {
               try {
-                const frameStreamPromise = waitForHlsStream(framePage, browserConfig.streamWaitMs);
-                await framePage.goto(frameUrl, { waitUntil: 'domcontentloaded' });
-                streamData = await frameStreamPromise;
-                if (streamData) break;
-              } catch (fErr) {
-                // Ignore iframe timeouts
-              } finally {
-                await framePage.close();
-              }
+                const fullUrl = new URL(href, eventPage.url()).href;
+                streamSources.add(fullUrl);
+              } catch (e) {}
             }
           }
         }
 
-        if (streamData) {
-          console.log(`[${sourceConfig.name}] HLS stream found: ${streamData.url}`);
-          for (const group of item.matchedGroups) {
-            streams.push({
-              group,
-              event: item.event,
-              source: sourceConfig.name,
-              url: streamData.url,
-              headers: streamData.headers,
-              pageUrl: item.href
-            });
+        // Check embedded player iframes
+        const iframes = await eventPage.locator('iframe').all().catch(() => []);
+        for (const iframe of iframes) {
+          const src = await iframe.getAttribute('src').catch(() => null);
+          if (src && !src.startsWith('about:') && !src.startsWith('javascript:')) {
+            try {
+              const frameUrl = new URL(src, eventPage.url()).href;
+              streamSources.add(frameUrl);
+            } catch (e) {}
           }
-        } else {
-          console.log(`[${sourceConfig.name}] No .m3u8 detected for: ${item.event}`);
+        }
+
+        // Fallback to checking the main event URL if no sub-players were located
+        if (streamSources.size === 0) {
+          streamSources.add(item.href);
+        }
+
+        console.log(`[${sourceConfig.name}] Found ${streamSources.size} potential stream sources for ${item.event}.`);
+
+        // 3. Visit and extract HLS streams from every detected player source
+        for (const sourceUrl of streamSources) {
+          const streamPage = await context.newPage();
+
+          try {
+            console.log(`[${sourceConfig.name}] Checking player: ${sourceUrl}`);
+            const streamPromise = waitForHlsStream(streamPage, browserConfig.streamWaitMs);
+            await streamPage.goto(sourceUrl, { waitUntil: 'domcontentloaded' });
+
+            const streamData = await streamPromise;
+            if (streamData) {
+              console.log(`[${sourceConfig.name}] HLS stream found: ${streamData.url}`);
+              for (const group of item.matchedGroups) {
+                streams.push({
+                  group,
+                  event: item.event,
+                  source: sourceConfig.name,
+                  url: streamData.url,
+                  headers: streamData.headers,
+                  pageUrl: sourceUrl
+                });
+              }
+            }
+          } catch (sErr) {
+            console.log(`[${sourceConfig.name}] No stream on player source ${sourceUrl}`);
+          } finally {
+            await streamPage.close();
+          }
         }
       } catch (err) {
         console.error(`[${sourceConfig.name}] Error processing event ${item.event}:`, err.message);
