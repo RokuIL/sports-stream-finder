@@ -9,6 +9,7 @@
   },
   "sources": [
 {
+{
       "name": "LiveTV",
       "type": "livetv",
       "baseUrl": "https://livetv.sx/enx/",
@@ -17,13 +18,13 @@
     {
       "name": "StreamedSu",
       "type": "streamedsu",
-      "baseUrl": "https://streamed.su/",
+      "baseUrl": "https://streamed.pk/",
       "enabled": true
     },
     {
       "name": "DaddyLive",
       "type": "daddylive",
-      "baseUrl": "https://daddylive.mp/",
+      "baseUrl": "https://dlhd.pk/",
       "enabled": true
     },
     {
@@ -35,7 +36,7 @@
     {
       "name": "MethStreams",
       "type": "methstreams",
-      "baseUrl": "https://methstreams.com/",
+      "baseUrl": "https://methstreams.cx/",
       "enabled": true
     }
   ],
