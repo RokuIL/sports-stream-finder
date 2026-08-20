@@ -1,0 +1,4 @@
+node_modules/
+live.m3u8
+*.log
+.DS_Store

@@ -1,0 +1,13 @@
+{
+  "name": "sports-stream-finder",
+  "version": "1.0.0",
+  "description": "Automated stream discovery via Playwright",
+  "main": "src/main.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.js"
+  },
+  "dependencies": {
+    "playwright": "^1.42.1"
+  }
+}
