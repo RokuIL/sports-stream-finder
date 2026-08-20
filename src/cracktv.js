@@ -2,12 +2,11 @@ import { matchEvent } from './matcher.js';
 import { waitForHlsStream } from './browser.js';
 
 const CATEGORY_PATHS = [
-  // '/categories/soccer',
-  // '/categories/football',
-  // '/categories/basketball',
+  '/categories/soccer',
+  '/categories/football',
+  '/categories/basketball',
   '/categories/baseball',
-  // '/categories/other-events',
-  '/categories/cricket'
+  '/categories/other-events'
 ];
 
 export async function scrapeCrackTv(context, sourceConfig, groups, browserConfig) {
