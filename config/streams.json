@@ -12,7 +12,7 @@
       "name": "LiveTV",
       "type": "livetv",
       "baseUrl": "https://livetv.sx/enx/",
-      "enabled": true
+      "enabled": false
     },
     {
       "name": "StreamedSu",
@@ -24,19 +24,19 @@
       "name": "DaddyLive",
       "type": "daddylive",
       "baseUrl": "https://dlhd.pk/",
-      "enabled": true
+      "enabled": false
     },
     {
       "name": "VipLeague",
       "type": "vipleague",
       "baseUrl": "https://www.vipleague.im/",
-      "enabled": true
+      "enabled": false
     },
     {
       "name": "MethStreams",
       "type": "methstreams",
       "baseUrl": "https://methstreams.cx/",
-      "enabled": true
+      "enabled": false
     }
   ],
   "groups": [
