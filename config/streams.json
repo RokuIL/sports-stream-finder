@@ -15,10 +15,10 @@
       "baseUrl": "https://livetv.sx/"
     },
     {
-      "name": "MainPortal66",
+      "name": "CrackTV",
       "type": "mainportal",
-      "enabled": true,
-      "baseUrl": "https://mainportal66.com/"
+      "baseUrl": "https://cracktv.me/",
+      "enabled": true
     }
   ],
   "groups": [
