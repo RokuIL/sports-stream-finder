@@ -4,13 +4,25 @@ export function generatePlaylist(streams, outputPath) {
   let content = '#EXTM3U\n';
 
   for (const stream of streams) {
-    const eventName = stream.event;
-    const groupTitle = stream.group || 'Sports';
+    // 1. Strip leading time prefixes (e.g., "18:10 ")
+    const cleanEventName = (stream.event || 'Live Event')
+      .replace(/^\d{1,2}:\d{2}\s*/, '')
+      .trim();
 
-    // Set tvg-id to stream name and tvg-provider to "Text"
-    content += `#EXTINF:-1 tvg-id="${eventName}" tvg-name="${eventName}" tvg-provider="Text" group-title="${groupTitle}", ${eventName}\n`;
+    // 2. Append source name (e.g., "Milwaukee Brewers vs Seattle Mariners (CrackTV)")
+    const sourceName = stream.source ? stream.source.trim() : '';
+    const displayName = sourceName ? `${cleanEventName} (${sourceName})` : cleanEventName;
 
-    // Append network headers if available
+    // 3. Extract string group title (handles both object and string configs)
+    let groupTitle = 'Sports';
+    if (typeof stream.group === 'string') {
+      groupTitle = stream.group;
+    } else if (stream.group && typeof stream.group === 'object') {
+      groupTitle = stream.group.name || stream.group.title || stream.group.id || 'Sports';
+    }
+
+    content += `#EXTINF:-1 tvg-id="${displayName}" tvg-name="${displayName}" tvg-provider="Text" group-title="${groupTitle}", ${displayName}\n`;
+
     if (stream.headers) {
       const referer = stream.headers['referer'] || stream.headers['Referer'];
       const origin = stream.headers['origin'] || stream.headers['Origin'];
