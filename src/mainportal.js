@@ -8,6 +8,20 @@ export async function scrapeMainPortal(context, sourceConfig, groups, browserCon
 
   try {
     await page.goto(sourceConfig.baseUrl, { timeout: browserConfig.pageTimeoutMs });
+
+    // ==========================================
+    // DEBUGGING BLOCK: MAINPORTAL
+    // ==========================================
+    console.log("[MainPortal] Waiting 5 seconds for page to fully load...");
+    await page.waitForTimeout(5000); 
+
+    console.log("[MainPortal] Taking debug screenshot...");
+    await page.screenshot({ path: 'debug-mainportal.png', fullPage: true });
+    
+    console.log("[MainPortal] Extracting page HTML snippet...");
+    const portalSource = await page.content();
+    console.log(portalSource.substring(0, 1000));
+    // ==========================================
     
     // Abstracted discovery: grab iframes or direct links to downstream sports sites
     const downstreamLinks = await page.locator('a').all();
