@@ -1,75 +1,113 @@
 import { matchEvent } from './matcher.js';
 import { waitForHlsStream } from './browser.js';
 
-export async function scrapeMainPortal(context, sourceConfig, groups, browserConfig) {
-  console.log(`[${sourceConfig.name}] Discovering downstream sites at ${sourceConfig.baseUrl}...`);
+export async function scrapeMainPortal(sourceConfig, groups, browserConfig, context) {
+  // Support both context-first or parameter-ordered calls
+  const browserCtx = context || sourceConfig;
+  const config = context ? sourceConfig : groups;
+  const groupRules = context ? groups : browserConfig;
+  const settings = context ? browserConfig : arguments[3];
+
+  console.log(`[${config.name}] Scanning ${config.baseUrl} ...`);
   const streams = [];
-  const page = await context.newPage();
+  const page = await browserCtx.newPage();
 
   try {
-    await page.goto(sourceConfig.baseUrl, { timeout: browserConfig.pageTimeoutMs });
-    
-    // Abstracted discovery: grab iframes or direct links to downstream sports sites
-    const downstreamLinks = await page.locator('a').all();
-    const downstreamUrls = new Set();
-    
-    for (const link of downstreamLinks) {
-      const href = await link.getAttribute('href');
-      if (href && href.startsWith('http')) {
-        downstreamUrls.add(href);
+    await page.goto(config.baseUrl, { 
+      timeout: settings.pageTimeoutMs,
+      waitUntil: 'domcontentloaded' 
+    });
+
+    await page.waitForSelector('a', { timeout: 5000 }).catch(() => 
+      console.log(`[${config.name}] Warning: No links loaded fast enough.`)
+    );
+
+    const links = await page.locator('a').all();
+    const eventLinks = [];
+
+    for (const link of links) {
+      let text = await link.textContent();
+      let href = await link.getAttribute('href');
+
+      if (text && href) {
+        text = text.replace(/[\n\t\r]/g, ' ')
+                   .replace(/\s+/g, ' ')
+                   .replace(/[–—]/g, '-')
+                   .trim();
+
+        if (text.length < 3 || href.startsWith('javascript:')) continue;
+
+        const matchedGroups = matchEvent(text, groupRules);
+        if (matchedGroups.length > 0) {
+          eventLinks.push({ event: text, href, matchedGroups });
+        }
       }
     }
 
-    for (const domain of downstreamUrls) {
-      console.log(`[${sourceConfig.name}] Checking downstream domain: ${domain}`);
-      const sitePage = await context.newPage();
+    if (eventLinks.length === 0) {
+      console.log(`[${config.name}] No matching events found on portal.`);
+    }
+
+    for (const item of eventLinks) {
+      console.log(`[${config.name}] Match found: ${item.event}`);
+      const eventPage = await browserCtx.newPage();
+
       try {
-        await sitePage.goto(domain, { timeout: browserConfig.pageTimeoutMs });
+        const urlToVisit = new URL(item.href, page.url()).href;
         
-        const links = await sitePage.locator('a').all();
-        for (const link of links) {
-          const text = await link.textContent();
-          const href = await link.getAttribute('href');
-          
-          if (text && href) {
-            const matchedGroups = matchEvent(text.trim(), groups);
-            if (matchedGroups.length > 0) {
-              console.log(`[${sourceConfig.name}] Match found: ${text.trim()}`);
-              const eventPage = await context.newPage();
+        // Start network capture before navigating to event page
+        const streamPromise = waitForHlsStream(eventPage, settings.streamWaitMs);
+        await eventPage.goto(urlToVisit, { waitUntil: 'domcontentloaded' });
+
+        let streamData = await streamPromise;
+
+        // If no stream captured on main page, search for nested player iframes
+        if (!streamData) {
+          const iframes = await eventPage.locator('iframe').all();
+          for (const iframe of iframes) {
+            const src = await iframe.getAttribute('src');
+            if (src && !src.startsWith('about:')) {
+              const frameUrl = new URL(src, eventPage.url()).href;
+              console.log(`[${config.name}] Inspecting embedded frame: ${frameUrl}`);
               
+              const framePage = await browserCtx.newPage();
               try {
-                const urlToVisit = href.startsWith('http') ? href : new URL(href, domain).href;
-                const streamPromise = waitForHlsStream(eventPage, browserConfig.streamWaitMs);
-                await eventPage.goto(urlToVisit, { waitUntil: 'domcontentloaded' });
-                
-                const streamData = await streamPromise;
-                if (streamData) {
-                  console.log(`[${sourceConfig.name}] HLS found: ${streamData.url}`);
-                  for (const group of matchedGroups) {
-                    streams.push({
-                      group,
-                      event: text.trim(),
-                      source: sourceConfig.name, // Always use base source name
-                      url: streamData.url,
-                      headers: streamData.headers,
-                      pageUrl: urlToVisit
-                    });
-                  }
-                }
+                const frameStreamPromise = waitForHlsStream(framePage, settings.streamWaitMs);
+                await framePage.goto(frameUrl, { waitUntil: 'domcontentloaded' });
+                streamData = await frameStreamPromise;
+                if (streamData) break;
+              } catch (fErr) {
+                // Ignore iframe navigation timeouts
               } finally {
-                await eventPage.close();
+                await framePage.close();
               }
             }
           }
         }
+
+        if (streamData) {
+          console.log(`[${config.name}] HLS stream found: ${streamData.url}`);
+          for (const group of item.matchedGroups) {
+            streams.push({
+              group,
+              event: item.event,
+              source: config.name,
+              url: streamData.url,
+              headers: streamData.headers,
+              pageUrl: urlToVisit
+            });
+          }
+        } else {
+          console.log(`[${config.name}] No .m3u8 detected for: ${item.event}`);
+        }
       } catch (err) {
-         // Silently ignore unreachable downstream domains to keep logs clean, or log debug
+        console.error(`[${config.name}] Error processing event ${item.event}:`, err.message);
       } finally {
-        await sitePage.close();
+        await eventPage.close();
       }
     }
   } catch (err) {
-    console.error(`[${sourceConfig.name}] Error scanning portal:`, err.message);
+    console.error(`[${config.name}] Error scanning site:`, err.message);
   } finally {
     await page.close();
   }
