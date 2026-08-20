@@ -9,12 +9,21 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
 
   try {
     const searchTerms = new Set();
+
+    // Extract search terms flexibly from groups object
     for (const group of groups) {
-      if (group.keywords) {
+      if (Array.isArray(group.keywords)) {
         for (const kw of group.keywords) {
-          if (kw.length > 3) searchTerms.add(kw.toLowerCase().trim());
+          if (kw && kw.trim().length > 1) searchTerms.add(kw.toLowerCase().trim());
         }
+      } else if (typeof group.keywords === 'string') {
+        searchTerms.add(group.keywords.toLowerCase().trim());
       }
+
+      // Check alternative property names if group.keywords isn't used
+      if (group.name) searchTerms.add(group.name.toLowerCase().trim());
+      if (group.query) searchTerms.add(group.query.toLowerCase().trim());
+      if (group.team) searchTerms.add(group.team.toLowerCase().trim());
     }
 
     console.log(`[${sourceConfig.name}] Derived search terms:`, Array.from(searchTerms));
@@ -29,10 +38,19 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
     console.log(`[${sourceConfig.name}] Resolved base URL: ${actualBaseUrl}`);
 
     const urlsToScan = new Set();
+    
+    // Construct search URLs for derived terms
     for (const term of searchTerms) {
-      const slug = term.replace(/\s+/g, '-');
-      urlsToScan.add(new URL(`/finding-${slug}-stream`, actualBaseUrl).href);
+      // Split multi-word keywords (e.g. "Seattle Mariners" -> check "mariners")
+      const words = term.split(/\s+/).filter(w => w.length > 2);
+      for (const word of words) {
+        urlsToScan.add(new URL(`/finding-${word}-stream`, actualBaseUrl).href);
+      }
+      const fullSlug = term.replace(/\s+/g, '-');
+      urlsToScan.add(new URL(`/finding-${fullSlug}-stream`, actualBaseUrl).href);
     }
+
+    // Always scan base route as fallback
     urlsToScan.add(actualBaseUrl);
 
     for (const targetUrl of urlsToScan) {
@@ -45,12 +63,8 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
 
         await page.waitForTimeout(2500);
 
-        // Debug: Log total links found on the page
-        const allAnchors = await page.locator('a').all();
-        console.log(`[${sourceConfig.name}] Total <a> elements on page: ${allAnchors.length}`);
-
-        // Query potential match links
-        const matchAnchors = await page.locator('a.btn[title], a[data-bs-toggle="collapse"], a[href*="/baseball/"]').all();
+        // Find candidate match anchors
+        const matchAnchors = await page.locator('a.btn[title], a[data-bs-toggle="collapse"], a[href*="/baseball/"], a[href*="-stream"]').all();
         console.log(`[${sourceConfig.name}] Candidate match anchors found: ${matchAnchors.length}`);
 
         for (const anchor of matchAnchors) {
@@ -63,13 +77,10 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
           text = text.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
           if (text.length < 5 || text.length > 300) continue;
 
-          console.log(`[${sourceConfig.name}] Inspecting text: "${text}"`);
-
           const matchedGroups = matchEvent(text, groups);
-          console.log(`[${sourceConfig.name}] Matcher result for "${text}":`, matchedGroups.length > 0 ? 'MATCH' : 'NO MATCH');
 
           if (matchedGroups.length > 0) {
-            console.log(`[${sourceConfig.name}] Click-expanding accordion for match...`);
+            console.log(`[${sourceConfig.name}] Match found for "${text}". Expanding accordion...`);
             await anchor.click().catch(() => {});
             await page.waitForTimeout(1200);
 
@@ -113,7 +124,7 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
 
     console.log(`[${sourceConfig.name}] Final total player endpoints to inspect: ${eventLinksMap.size}`);
 
-    // Inspect player endpoints
+    // Inspect player endpoints for HLS manifests
     for (const item of eventLinksMap.values()) {
       console.log(`[${sourceConfig.name}] Inspecting player page: ${item.href}`);
       const playerPage = await context.newPage();
