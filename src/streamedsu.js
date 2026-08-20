@@ -14,15 +14,11 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
 
   const mirrorsToTry = [sourceConfig.baseUrl, ...MIRRORS.filter(m => m !== sourceConfig.baseUrl)];
 
-  // 1. Discover match events on the main page/schedule
+  // 1. Discover matches
   for (const baseUrl of mirrorsToTry) {
     console.log(`[${sourceConfig.name}] Trying mirror ${baseUrl} ...`);
     try {
-      await page.goto(baseUrl, { 
-        timeout: 12000,
-        waitUntil: 'domcontentloaded' 
-      });
-
+      await page.goto(baseUrl, { timeout: 12000, waitUntil: 'domcontentloaded' });
       await page.waitForSelector('a', { timeout: 4000 }).catch(() => {});
       const links = await page.locator('a').all();
 
@@ -50,7 +46,7 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
     }
   }
 
-  // 2. Extract individual stream sub-routes and capture player network requests
+  // 2. Extract ALL sub-streams
   try {
     for (const item of eventLinksMap.values()) {
       console.log(`[${sourceConfig.name}] Match found: ${item.event}`);
@@ -60,7 +56,6 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
         await eventPage.goto(item.href, { waitUntil: 'domcontentloaded' });
         await eventPage.waitForTimeout(2000);
 
-        // Parse individual stream links (e.g. /watch/slug/admin/1)
         const subStreamLinks = [];
         const links = await eventPage.locator('a[href*="/watch/"]').all().catch(() => []);
 
@@ -68,7 +63,6 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
           const href = await link.getAttribute('href').catch(() => null);
           if (href) {
             const fullUrl = new URL(href, eventPage.url()).href;
-            // Target extended sub-routes (longer than main event URL)
             if (fullUrl !== item.href && fullUrl.length > item.href.length) {
               if (!subStreamLinks.includes(fullUrl)) {
                 subStreamLinks.push(fullUrl);
@@ -78,11 +72,10 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
         }
 
         console.log(`[${sourceConfig.name}] Found ${subStreamLinks.length} sub-stream routes for ${item.event}`);
-
         const targetsToProcess = subStreamLinks.length > 0 ? subStreamLinks : [item.href];
-        let streamData = null;
 
-        for (const targetUrl of targetsToProcess.slice(0, 4)) {
+        // Process ALL available sub-stream routes without breaking early
+        for (const targetUrl of targetsToProcess) {
           console.log(`[${sourceConfig.name}] Navigating to stream route: ${targetUrl}`);
           const streamPage = await context.newPage();
 
@@ -90,16 +83,15 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
             const streamPromise = waitForHlsStream(streamPage, browserConfig.streamWaitMs);
             await streamPage.goto(targetUrl, { waitUntil: 'domcontentloaded' });
 
-            await streamPage.waitForTimeout(3000);
+            // Trigger player click actions
+            const playButtons = await streamPage.locator('button, .play, #play, .vjs-big-play-button, video').all().catch(() => []);
+            for (const btn of playButtons.slice(0, 3)) {
+              await btn.click().catch(() => {});
+            }
 
-            // Trigger play actions on video elements
-            await streamPage.evaluate(() => {
-              document.querySelectorAll('video').forEach(v => v.play().catch(() => {}));
-            }).catch(() => {});
+            let streamData = await streamPromise;
 
-            streamData = await streamPromise;
-
-            // Check inside embedded player iframe if not captured directly
+            // Check inner iframe if stream not detected on main frame
             if (!streamData) {
               const iframes = await streamPage.locator('iframe').all().catch(() => []);
               for (const frame of iframes) {
@@ -108,9 +100,15 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
                   const frameUrl = new URL(src, streamPage.url()).href;
                   const framePage = await context.newPage();
                   try {
-                    console.log(`[${sourceConfig.name}] Checking embed player frame: ${frameUrl}`);
                     const framePromise = waitForHlsStream(framePage, browserConfig.streamWaitMs);
                     await framePage.goto(frameUrl, { waitUntil: 'domcontentloaded', referrer: targetUrl });
+                    
+                    // Click inside frame to bypass autoplay restrictions
+                    await framePage.click('body').catch(() => {});
+                    await framePage.evaluate(() => {
+                      document.querySelectorAll('video').forEach(v => v.play().catch(() => {}));
+                    }).catch(() => {});
+
                     streamData = await framePromise;
                     await framePage.close();
                     if (streamData) break;
@@ -123,27 +121,23 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
 
             await streamPage.close();
 
-            if (streamData) break;
+            if (streamData) {
+              console.log(`[${sourceConfig.name}] HLS stream found: ${streamData.url}`);
+              for (const group of item.matchedGroups) {
+                streams.push({
+                  group,
+                  event: item.event,
+                  source: sourceConfig.name,
+                  url: streamData.url,
+                  headers: streamData.headers,
+                  pageUrl: targetUrl
+                });
+              }
+            }
           } catch (err) {
             console.log(`[${sourceConfig.name}] Error checking route ${targetUrl}:`, err.message);
             await streamPage.close().catch(() => {});
           }
-        }
-
-        if (streamData) {
-          console.log(`[${sourceConfig.name}] HLS stream found: ${streamData.url}`);
-          for (const group of item.matchedGroups) {
-            streams.push({
-              group,
-              event: item.event,
-              source: sourceConfig.name,
-              url: streamData.url,
-              headers: streamData.headers,
-              pageUrl: item.href
-            });
-          }
-        } else {
-          console.log(`[${sourceConfig.name}] No HLS stream detected for ${item.event}`);
         }
       } catch (err) {
         console.error(`[${sourceConfig.name}] Error processing event ${item.event}:`, err.message);
