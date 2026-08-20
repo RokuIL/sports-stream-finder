@@ -6,7 +6,6 @@ import { scrapeLiveTv } from './livetv.js';
 import { scrapeStreamedSu } from './streamedsu.js';
 import { scrapeDaddyLive } from './daddylive.js';
 import { scrapeVipLeague } from './vipleague.js';
-import { scrapeMethStreams } from './methstreams.js';
 import { generatePlaylist } from './playlist.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
