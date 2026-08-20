@@ -13,7 +13,6 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
       waitUntil: 'domcontentloaded' 
     });
 
-    // 1. Leverage Search Bar for Configured Keywords
     const searchInput = page.locator('input[type="search"], input[name="q"], input[id*="search"], input[placeholder*="search" i]').first();
     const isSearchVisible = await searchInput.isVisible().catch(() => false);
 
@@ -24,13 +23,15 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
           if (!keyword || keyword.length < 3) continue;
           try {
             console.log(`[${sourceConfig.name}] Searching for: "${keyword}"`);
+            await searchInput.click();
             await searchInput.fill('');
-            await searchInput.fill(keyword);
-            await searchInput.press('Enter').catch(() => {});
-            await page.waitForTimeout(1500);
+            await searchInput.type(keyword, { delay: 100 });
+            await searchInput.dispatchEvent('input').catch(() => {});
+            await page.waitForTimeout(2000);
 
-            const searchLinks = await page.locator('a').all();
-            for (const link of searchLinks) {
+            // Scrape suggestion dropdowns / result cards
+            const searchResults = await page.locator('.search-results a, .autocomplete-suggestions a, .dropdown-menu a, div[class*="search"] a, a').all();
+            for (const link of searchResults) {
               let text = await link.textContent().catch(() => null);
               let href = await link.getAttribute('href').catch(() => null);
               if (text && href) {
@@ -53,7 +54,7 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
       }
     }
 
-    // 2. Scan standard category/main page links as fallback/supplement
+    // Standard DOM link sweep
     const links = await page.locator('a').all();
     for (const link of links) {
       let text = await link.textContent().catch(() => null);
@@ -73,7 +74,6 @@ export async function scrapeVipLeague(context, sourceConfig, groups, browserConf
       }
     }
 
-    // 3. Process matched events
     for (const item of eventLinksMap.values()) {
       console.log(`[${sourceConfig.name}] Match found: ${item.event}`);
       const eventPage = await context.newPage();
