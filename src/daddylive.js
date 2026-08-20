@@ -26,11 +26,9 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
 
         await page.waitForTimeout(3000);
 
-        // Directly target DaddyLive's event containers
         const events = await page.locator('.schedule__event').all();
 
         for (const eventCard of events) {
-          // Extract text from title element or data attribute
           const header = eventCard.locator('.schedule__eventHeader');
           let eventText = await header.getAttribute('data-title').catch(() => null);
 
@@ -39,12 +37,10 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
           }
 
           if (!eventText) continue;
-
           eventText = eventText.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
 
           const matchedGroups = matchEvent(eventText, groups);
           if (matchedGroups.length > 0) {
-            // Find links inside .schedule__channels (even if hidden)
             const links = await eventCard.locator('.schedule__channels a[href], a[href]').all();
 
             for (const link of links) {
@@ -71,7 +67,7 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
       }
     }
 
-    // Process matched channel pages
+    // Process matched channel pages and click all player buttons
     for (const item of eventLinksMap.values()) {
       console.log(`[${sourceConfig.name}] Target event match: ${item.event}`);
       const eventPage = await context.newPage();
@@ -80,17 +76,39 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
         await eventPage.goto(item.href, { waitUntil: 'domcontentloaded' });
         await eventPage.waitForTimeout(2000);
 
-        const playerTargets = new Set([item.href]);
-        const iframes = await eventPage.locator('iframe').all().catch(() => []);
+        // Find server/player switch buttons on the page (e.g. "Server 1", "Server 2")
+        const serverButtons = await eventPage.locator('button[class*="server"], .btn-server, a[href*="stream"], .player-servers button, .servers div').all().catch(() => []);
 
-        for (const frame of iframes) {
+        // Build list of target frames/pages to inspect
+        const targetsToScan = new Set([item.href]);
+
+        const mainIframes = await eventPage.locator('iframe').all().catch(() => []);
+        for (const frame of mainIframes) {
           const src = await frame.getAttribute('src').catch(() => null);
           if (src && !src.startsWith('about:') && !src.startsWith('javascript:')) {
-            playerTargets.add(new URL(src, eventPage.url()).href);
+            targetsToScan.add(new URL(src, eventPage.url()).href);
           }
         }
 
-        for (const targetUrl of playerTargets) {
+        // If server buttons exist, click each to register new dynamic iframes/streams
+        if (serverButtons.length > 0) {
+          console.log(`[${sourceConfig.name}] Found ${serverButtons.length} player server buttons. Clicking...`);
+          for (const btn of serverButtons) {
+            await btn.click().catch(() => {});
+            await eventPage.waitForTimeout(1500);
+
+            const dynamicIframes = await eventPage.locator('iframe').all().catch(() => []);
+            for (const frame of dynamicIframes) {
+              const src = await frame.getAttribute('src').catch(() => null);
+              if (src && !src.startsWith('about:') && !src.startsWith('javascript:')) {
+                targetsToScan.add(new URL(src, eventPage.url()).href);
+              }
+            }
+          }
+        }
+
+        // Scan all target players without breaking early
+        for (const targetUrl of targetsToScan) {
           const streamPage = await context.newPage();
           try {
             console.log(`[${sourceConfig.name}] Checking player: ${targetUrl}`);
@@ -110,8 +128,6 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
                   pageUrl: targetUrl
                 });
               }
-              await streamPage.close();
-              break;
             }
           } catch (err) {
             console.log(`[${sourceConfig.name}] No stream detected on target: ${targetUrl}`);
