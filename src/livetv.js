@@ -8,20 +8,6 @@ export async function scrapeLiveTv(context, sourceConfig, groups, browserConfig)
 
   try {
     await page.goto(sourceConfig.baseUrl, { timeout: browserConfig.pageTimeoutMs });
-
-    // ==========================================
-    // DEBUGGING BLOCK: LIVETV
-    // ==========================================
-    console.log("[LiveTV] Waiting 5 seconds for page to fully load...");
-    await page.waitForTimeout(5000); 
-
-    console.log("[LiveTV] Taking debug screenshot...");
-    await page.screenshot({ path: 'debug-livetv.png', fullPage: true });
-    
-    console.log("[LiveTV] Extracting page HTML snippet...");
-    const liveTvSource = await page.content();
-    console.log(liveTvSource.substring(0, 1000));
-    // ==========================================
     
     // Note: Selectors may need adjustment based on live DOM structure
     const links = await page.locator('a').all();
