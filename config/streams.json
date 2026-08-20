@@ -31,7 +31,7 @@
       "type": "vipleague",
       "baseUrl": "https://www.vipleague.im/",
       "enabled": true
-    },
+    }
   ],
   "groups": [
     {
