@@ -1,0 +1,40 @@
+{
+  "output": {
+    "file": "live.m3u8"
+  },
+  "browser": {
+    "headless": true,
+    "pageTimeoutMs": 30000,
+    "streamWaitMs": 15000
+  },
+  "sources": [
+    {
+      "name": "LiveTV SX",
+      "type": "livetv",
+      "enabled": true,
+      "baseUrl": "https://livesxtv.com/"
+    },
+    {
+      "name": "MainPortal66",
+      "type": "mainportal",
+      "enabled": true,
+      "baseUrl": "https://mainportal66.com/"
+    }
+  ],
+  "groups": [
+    {
+      "name": "Seattle",
+      "matches": [
+        "Seahawks"
+      ],
+      "logo": ""
+    },
+    {
+      "name": "Seattle",
+      "matches": [
+        "Mariners"
+      ],
+      "logo": ""
+    }
+  ]
+}
