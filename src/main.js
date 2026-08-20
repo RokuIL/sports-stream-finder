@@ -3,7 +3,10 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createBrowser } from './browser.js';
 import { scrapeLiveTv } from './livetv.js';
-import { scrapeCrackTv } from './cracktv.js';
+import { scrapeStreamedSu } from './streamedsu.js';
+import { scrapeDaddyLive } from './daddylive.js';
+import { scrapeVipLeague } from './vipleague.js';
+import { scrapeMethStreams } from './methstreams.js';
 import { generatePlaylist } from './playlist.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -22,9 +25,17 @@ async function main() {
       if (source.type === 'livetv') {
         const streams = await scrapeLiveTv(context, source, config.groups, config.browser);
         allStreams.push(...streams);
-      } 
-      else if (source.type === 'cracktv') {
-        const streams = await scrapeCrackTv(context, source, config.groups, config.browser);
+      } else if (source.type === 'streamedsu') {
+        const streams = await scrapeStreamedSu(context, source, config.groups, config.browser);
+        allStreams.push(...streams);
+      } else if (source.type === 'daddylive') {
+        const streams = await scrapeDaddyLive(context, source, config.groups, config.browser);
+        allStreams.push(...streams);
+      } else if (source.type === 'vipleague') {
+        const streams = await scrapeVipLeague(context, source, config.groups, config.browser);
+        allStreams.push(...streams);
+      } else if (source.type === 'methstreams') {
+        const streams = await scrapeMethStreams(context, source, config.groups, config.browser);
         allStreams.push(...streams);
       }
     }
