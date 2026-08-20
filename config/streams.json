@@ -24,13 +24,13 @@
       "name": "DaddyLive",
       "type": "daddylive",
       "baseUrl": "https://dlhd.pk/",
-      "enabled": true
+      "enabled": false
     },
     {
       "name": "VipLeague",
       "type": "vipleague",
       "baseUrl": "https://www.vipleague.im/",
-      "enabled": false
+      "enabled": true
     },
     {
       "name": "MethStreams",
