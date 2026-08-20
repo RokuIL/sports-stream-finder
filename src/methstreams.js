@@ -3,8 +3,10 @@ import { waitForHlsStream } from './browser.js';
 
 const MIRRORS = [
   'https://methstreams.cx/',
-  'https://methstreams.app/',
-  'https://methstreams.ms/'
+  'https://methstreams.com/',
+  'https://methstreams.net/',
+  'https://methstreams.org/',
+  'https://methstreams.app/'
 ];
 
 export async function scrapeMethStreams(context, sourceConfig, groups, browserConfig) {
@@ -18,11 +20,11 @@ export async function scrapeMethStreams(context, sourceConfig, groups, browserCo
     console.log(`[${sourceConfig.name}] Trying mirror ${baseUrl} ...`);
     try {
       await page.goto(baseUrl, { 
-        timeout: browserConfig.pageTimeoutMs,
+        timeout: 12000,
         waitUntil: 'domcontentloaded' 
       });
 
-      await page.waitForSelector('a', { timeout: 5000 }).catch(() => {});
+      await page.waitForSelector('a', { timeout: 4000 }).catch(() => {});
 
       const links = await page.locator('a').all();
 
@@ -44,7 +46,7 @@ export async function scrapeMethStreams(context, sourceConfig, groups, browserCo
         }
       }
 
-      if (eventLinksMap.size > 0) break; // Mirror succeeded
+      if (eventLinksMap.size > 0) break;
     } catch (err) {
       console.log(`[${sourceConfig.name}] Mirror ${baseUrl} failed:`, err.message);
     }
