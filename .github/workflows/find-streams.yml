@@ -2,11 +2,7 @@ name: Find Sports Streams
 
 on:
   workflow_dispatch:
-    inputs:
-      extra_search:
-        description: 'Optional additional substring to search'
-        required: false
-        type: string
+
 # Add this permissions block:
 permissions:
   contents: write
