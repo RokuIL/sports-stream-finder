@@ -56,28 +56,51 @@ export async function scrapeLiveTv(context, sourceConfig, groups, browserConfig)
       const eventPage = await context.newPage();
       
       try {
-        // Handle LiveTV's highly relative URLs cleanly
         const urlToVisit = new URL(item.href, page.url()).href; 
-        
-        // Start listening before navigating
-        const streamPromise = waitForHlsStream(eventPage, browserConfig.streamWaitMs);
         await eventPage.goto(urlToVisit, { waitUntil: 'domcontentloaded' });
         
-        const streamData = await streamPromise;
-        if (streamData) {
-          console.log(`[${sourceConfig.name}] HLS found: ${streamData.url}`);
-          for (const group of item.matchedGroups) {
-            streams.push({
-              group,
-              event: item.event,
-              source: sourceConfig.name,
-              url: streamData.url,
-              headers: streamData.headers,
-              pageUrl: urlToVisit
-            });
+        // Find all links on the event page that point to the web player
+        const playerLinks = await eventPage.locator('a[href*="webplayer"]').all();
+        const uniquePlayerHrefs = new Set();
+        
+        for (const pLink of playerLinks) {
+          const href = await pLink.getAttribute('href');
+          if (href) uniquePlayerHrefs.add(href);
+        }
+
+        console.log(`[${sourceConfig.name}] Found ${uniquePlayerHrefs.size} player links for ${item.event}.`);
+
+        // Test each player link until we find a working stream
+        for (const playerHref of uniquePlayerHrefs) {
+          const playerUrl = new URL(playerHref, eventPage.url()).href;
+          const streamPage = await context.newPage();
+          
+          try {
+            console.log(`[${sourceConfig.name}] Checking player: ${playerUrl}`);
+            const streamPromise = waitForHlsStream(streamPage, browserConfig.streamWaitMs);
+            await streamPage.goto(playerUrl, { waitUntil: 'domcontentloaded' });
+            
+            const streamData = await streamPromise;
+            if (streamData) {
+              console.log(`[${sourceConfig.name}] HLS found: ${streamData.url}`);
+              for (const group of item.matchedGroups) {
+                streams.push({
+                  group,
+                  event: item.event,
+                  source: sourceConfig.name,
+                  url: streamData.url,
+                  headers: streamData.headers,
+                  pageUrl: playerUrl
+                });
+              }
+              // Break out of the loop since we found a working stream for this event
+              break; 
+            }
+          } catch (err) {
+            console.log(`[${sourceConfig.name}] No stream on this player, moving to next...`);
+          } finally {
+            await streamPage.close();
           }
-        } else {
-          console.log(`[${sourceConfig.name}] No .m3u8 detected for: ${item.event}`);
         }
       } catch (err) {
         console.error(`[${sourceConfig.name}] Error processing event ${item.event}:`, err.message);
