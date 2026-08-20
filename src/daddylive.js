@@ -1,38 +1,54 @@
 import { matchEvent } from './matcher.js';
 import { waitForHlsStream } from './browser.js';
 
+const SCHEDULE_PATHS = [
+  '/schedule/schedule-stream.php',
+  '/schedule/',
+  '/'
+];
+
 export async function scrapeDaddyLive(context, sourceConfig, groups, browserConfig) {
-  const scheduleUrl = new URL('/schedule/schedule-stream.php', sourceConfig.baseUrl).href;
-  console.log(`[${sourceConfig.name}] Scanning schedule at ${scheduleUrl} ...`);
+  console.log(`[${sourceConfig.name}] Scanning schedule on ${sourceConfig.baseUrl} ...`);
   const streams = [];
   const page = await context.newPage();
   const eventLinksMap = new Map();
 
   try {
-    await page.goto(scheduleUrl, { 
-      timeout: browserConfig.pageTimeoutMs,
-      waitUntil: 'domcontentloaded' 
-    });
+    for (const path of SCHEDULE_PATHS) {
+      const scheduleUrl = new URL(path, sourceConfig.baseUrl).href;
+      console.log(`[${sourceConfig.name}] Checking ${scheduleUrl} ...`);
 
-    await page.waitForSelector('a', { timeout: 5000 }).catch(() => {});
+      try {
+        await page.goto(scheduleUrl, { 
+          timeout: browserConfig.pageTimeoutMs,
+          waitUntil: 'domcontentloaded' 
+        });
 
-    const links = await page.locator('a').all();
+        await page.waitForSelector('a', { timeout: 5000 }).catch(() => {});
 
-    for (const link of links) {
-      let text = await link.textContent();
-      let href = await link.getAttribute('href');
+        const links = await page.locator('a').all();
 
-      if (text && href) {
-        text = text.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
-        if (text.length < 3 || href.startsWith('javascript:')) continue;
+        for (const link of links) {
+          let text = await link.textContent().catch(() => null);
+          let href = await link.getAttribute('href').catch(() => null);
 
-        const matchedGroups = matchEvent(text, groups);
-        if (matchedGroups.length > 0) {
-          const fullUrl = new URL(href, page.url()).href;
-          if (!eventLinksMap.has(fullUrl)) {
-            eventLinksMap.set(fullUrl, { event: text, href: fullUrl, matchedGroups });
+          if (text && href) {
+            text = text.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
+            if (text.length < 3 || href.startsWith('javascript:')) continue;
+
+            const matchedGroups = matchEvent(text, groups);
+            if (matchedGroups.length > 0) {
+              const fullUrl = new URL(href, page.url()).href;
+              if (!eventLinksMap.has(fullUrl)) {
+                eventLinksMap.set(fullUrl, { event: text, href: fullUrl, matchedGroups });
+              }
+            }
           }
         }
+
+        if (eventLinksMap.size > 0) break; // Exit path loop if matches found
+      } catch (pathErr) {
+        console.log(`[${sourceConfig.name}] Schedule path ${path} unavailable:`, pathErr.message);
       }
     }
 
