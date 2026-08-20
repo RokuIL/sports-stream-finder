@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createBrowser } from './browser.js';
 import { scrapeLiveTv } from './livetv.js';
-import { scrapeMainPortal } from './mainportal.js';
+import { scrapeCrackTv } from './cracktv.js';
 import { generatePlaylist } from './playlist.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,8 +23,8 @@ async function main() {
         const streams = await scrapeLiveTv(context, source, config.groups, config.browser);
         allStreams.push(...streams);
       } 
-      else if (source.type === 'mainportal') {
-        const streams = await scrapeMainPortal(context, source, config.groups, config.browser);
+      else if (source.type === 'cracktv') {
+        const streams = await scrapeCrackTv(context, source, config.groups, config.browser);
         allStreams.push(...streams);
       }
     }
@@ -35,7 +35,8 @@ async function main() {
     await browser.close();
   }
 
-  generatePlaylist(allStreams, config.output.file);
+  const outputPath = path.resolve(__dirname, '../', config.output.file);
+  generatePlaylist(allStreams, outputPath);
 }
 
 main();
