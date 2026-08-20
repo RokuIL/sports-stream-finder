@@ -24,31 +24,36 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
           waitUntil: 'domcontentloaded' 
         });
 
-        await page.waitForSelector('a', { timeout: 5000 }).catch(() => {});
+        await page.waitForTimeout(3000);
 
-        const links = await page.locator('a').all();
+        // Scan row blocks (tr, div rows) where text and links are separated
+        const rows = await page.locator('tr, div[class*="event"], div[class*="schedule"], .row').all();
 
-        for (const link of links) {
-          let text = await link.textContent().catch(() => null);
-          let href = await link.getAttribute('href').catch(() => null);
+        for (const row of rows) {
+          let rowText = await row.textContent().catch(() => null);
+          if (!rowText) continue;
 
-          if (text && href) {
-            text = text.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
-            if (text.length < 3 || href.startsWith('javascript:')) continue;
+          rowText = rowText.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
+          if (rowText.length < 5) continue;
 
-            const matchedGroups = matchEvent(text, groups);
-            if (matchedGroups.length > 0) {
-              const fullUrl = new URL(href, page.url()).href;
-              if (!eventLinksMap.has(fullUrl)) {
-                eventLinksMap.set(fullUrl, { event: text, href: fullUrl, matchedGroups });
+          const matchedGroups = matchEvent(rowText, groups);
+          if (matchedGroups.length > 0) {
+            const rowLinks = await row.locator('a').all();
+            for (const link of rowLinks) {
+              const href = await link.getAttribute('href').catch(() => null);
+              if (href && !href.startsWith('javascript:') && !href.startsWith('#')) {
+                const fullUrl = new URL(href, page.url()).href;
+                if (!eventLinksMap.has(fullUrl)) {
+                  eventLinksMap.set(fullUrl, { event: rowText, href: fullUrl, matchedGroups });
+                }
               }
             }
           }
         }
 
-        if (eventLinksMap.size > 0) break; // Exit path loop if matches found
+        if (eventLinksMap.size > 0) break;
       } catch (pathErr) {
-        console.log(`[${sourceConfig.name}] Schedule path ${path} unavailable:`, pathErr.message);
+        console.log(`[${sourceConfig.name}] Schedule path ${path} error:`, pathErr.message);
       }
     }
 
