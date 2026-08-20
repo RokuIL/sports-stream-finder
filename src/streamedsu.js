@@ -14,6 +14,7 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
 
   const mirrorsToTry = [sourceConfig.baseUrl, ...MIRRORS.filter(m => m !== sourceConfig.baseUrl)];
 
+  // 1. Discover matches from mirror homepages
   for (const baseUrl of mirrorsToTry) {
     console.log(`[${sourceConfig.name}] Trying mirror ${baseUrl} ...`);
     try {
@@ -23,7 +24,6 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
       });
 
       await page.waitForSelector('a', { timeout: 4000 }).catch(() => {});
-
       const links = await page.locator('a').all();
 
       for (const link of links) {
@@ -50,42 +50,67 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
     }
   }
 
+  // 2. Extract streams from watch pages
   try {
     for (const item of eventLinksMap.values()) {
       console.log(`[${sourceConfig.name}] Match found: ${item.event}`);
       const eventPage = await context.newPage();
 
       try {
-        const streamPromise = waitForHlsStream(eventPage, browserConfig.streamWaitMs);
+        // Start listening for HLS network requests immediately
+        const streamPromise = waitForHlsStream(eventPage, browserConfig.streamWaitMs + 5000);
+        
         await eventPage.goto(item.href, { waitUntil: 'domcontentloaded' });
+        await eventPage.waitForTimeout(2000);
 
-        // Click stream option buttons if present to activate player
-        const streamBtns = await eventPage.locator('.stream-btn, button[class*="stream"], a[class*="stream"], #stream-buttons button').all().catch(() => []);
-        for (const btn of streamBtns.slice(0, 3)) {
-          await btn.click().catch(() => {});
-          await eventPage.waitForTimeout(1000);
+        // Click stream source buttons/tabs on page if present
+        const streamButtons = await eventPage.locator('button, .btn, [class*="stream"], [id*="stream"], a[href*="stream"]').all().catch(() => []);
+        for (const btn of streamButtons.slice(0, 5)) {
+          const isVisible = await btn.isVisible().catch(() => false);
+          if (isVisible) {
+            await btn.click().catch(() => {});
+            await eventPage.waitForTimeout(1000);
+          }
         }
+
+        // Trigger play actions on any HTML5 video tags in main page or frames
+        await eventPage.evaluate(() => {
+          document.querySelectorAll('video').forEach(v => v.play().catch(() => {}));
+        }).catch(() => {});
 
         let streamData = await streamPromise;
 
-        // Fallback to checking iFrames
+        // Fallback: If no stream captured directly, scan and navigate all embed frames
         if (!streamData) {
-          const iframes = await eventPage.locator('iframe').all().catch(() => []);
-          for (const frame of iframes) {
-            const src = await frame.getAttribute('src').catch(() => null);
-            if (src && !src.startsWith('about:') && !src.startsWith('javascript:')) {
-              const targetUrl = new URL(src, eventPage.url()).href;
-              const streamPage = await context.newPage();
+          console.log(`[${sourceConfig.name}] Directly capturing network requests from iframe targets...`);
+          const frames = eventPage.frames();
+          
+          for (const frame of frames) {
+            const frameUrl = frame.url();
+            if (frameUrl && frameUrl !== 'about:blank' && !frameUrl.includes('google') && !frameUrl.includes('ads')) {
+              const framePage = await context.newPage();
               try {
-                console.log(`[${sourceConfig.name}] Checking player frame: ${targetUrl}`);
-                const framePromise = waitForHlsStream(streamPage, browserConfig.streamWaitMs);
-                await streamPage.goto(targetUrl, { waitUntil: 'domcontentloaded' });
-                streamData = await framePromise;
+                console.log(`[${sourceConfig.name}] Inspecting embed frame: ${frameUrl}`);
+                const frameStreamPromise = waitForHlsStream(framePage, browserConfig.streamWaitMs);
+                
+                await framePage.goto(frameUrl, { waitUntil: 'domcontentloaded', referrer: item.href });
+                
+                // Click play overlay if present inside embed frame
+                const playBtn = framePage.locator('.play, #play, .vjs-big-play-button, button').first();
+                if (await playBtn.isVisible().catch(() => false)) {
+                  await playBtn.click().catch(() => {});
+                }
+
+                await framePage.evaluate(() => {
+                  document.querySelectorAll('video').forEach(v => v.play().catch(() => {}));
+                }).catch(() => {});
+
+                streamData = await frameStreamPromise;
+                await framePage.close();
+
                 if (streamData) break;
               } catch (e) {
-                // frame failed
-              } finally {
-                await streamPage.close();
+                await framePage.close().catch(() => {});
               }
             }
           }
