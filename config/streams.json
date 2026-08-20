@@ -8,16 +8,34 @@
     "streamWaitMs": 15000
   },
   "sources": [
-    {
-      "name": "LiveTV SX",
+{
+      "name": "LiveTV",
       "type": "livetv",
-      "enabled": true,
-      "baseUrl": "https://livetv.sx/"
+      "baseUrl": "https://livetv.sx/enx/",
+      "enabled": true
     },
     {
-      "name": "CrackTV",
-      "type": "cracktv",
-      "baseUrl": "https://cracktv.me/",
+      "name": "StreamedSu",
+      "type": "streamedsu",
+      "baseUrl": "https://streamed.su/",
+      "enabled": true
+    },
+    {
+      "name": "DaddyLive",
+      "type": "daddylive",
+      "baseUrl": "https://daddylive.mp/",
+      "enabled": true
+    },
+    {
+      "name": "VipLeague",
+      "type": "vipleague",
+      "baseUrl": "https://www.vipleague.im/",
+      "enabled": true
+    },
+    {
+      "name": "MethStreams",
+      "type": "methstreams",
+      "baseUrl": "https://methstreams.com/",
       "enabled": true
     }
   ],
