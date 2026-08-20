@@ -1,0 +1,39 @@
+name: Find Sports Streams
+
+on:
+  schedule:
+    - cron: '*/90 * * * *' # Runs every 15 minutes
+  workflow_dispatch:
+    inputs:
+      extra_search:
+        description: 'Optional additional substring to search'
+        required: false
+        type: string
+
+jobs:
+  scrape-streams:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Run Scraper
+        run: npm start
+
+      - name: Upload Playlist Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-playlist
+          path: live.m3u8
+          retention-days: 1
