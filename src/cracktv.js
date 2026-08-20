@@ -6,7 +6,8 @@ const CATEGORY_PATHS = [
   '/categories/football',
   '/categories/basketball',
   '/categories/baseball',
-  '/categories/other-events'
+  '/categories/other-events',
+  '/categories/cricket'
 ];
 
 export async function scrapeCrackTv(context, sourceConfig, groups, browserConfig) {
