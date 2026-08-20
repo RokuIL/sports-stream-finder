@@ -2,7 +2,6 @@ import { matchEvent } from './matcher.js';
 import { waitForHlsStream } from './browser.js';
 
 export async function scrapeLiveTv(context, sourceConfig, groups, browserConfig) {
-  // Force the URL to use the English directory
   const baseUrlObj = new URL(sourceConfig.baseUrl);
   if (!baseUrlObj.pathname.includes('/enx/')) {
     baseUrlObj.pathname = '/enx/';
@@ -19,7 +18,6 @@ export async function scrapeLiveTv(context, sourceConfig, groups, browserConfig)
       waitUntil: 'networkidle' 
     });
     
-    // Ensure links actually exist before iterating
     await page.waitForSelector('a', { timeout: 5000 }).catch(() => console.log(`[${sourceConfig.name}] Warning: No links loaded fast enough.`));
     
     const links = await page.locator('a').all();
@@ -30,13 +28,11 @@ export async function scrapeLiveTv(context, sourceConfig, groups, browserConfig)
       let href = await link.getAttribute('href');
       
       if (text && href) {
-        // Normalize the text (LiveTV uses heavy whitespace and special dashes)
         text = text.replace(/[\n\t\r]/g, ' ')
                    .replace(/\s+/g, ' ')
                    .replace(/[–—]/g, '-')
                    .trim();
         
-        // Skip obvious navigation links to speed up processing
         if (text.length < 5 || href.startsWith('javascript:')) continue;
 
         const matchedGroups = matchEvent(text, groups);
@@ -59,7 +55,6 @@ export async function scrapeLiveTv(context, sourceConfig, groups, browserConfig)
         const urlToVisit = new URL(item.href, page.url()).href; 
         await eventPage.goto(urlToVisit, { waitUntil: 'domcontentloaded' });
         
-        // Find all links on the event page that point to the web player
         const playerLinks = await eventPage.locator('a[href*="webplayer"]').all();
         const uniquePlayerHrefs = new Set();
         
@@ -70,7 +65,9 @@ export async function scrapeLiveTv(context, sourceConfig, groups, browserConfig)
 
         console.log(`[${sourceConfig.name}] Found ${uniquePlayerHrefs.size} player links for ${item.event}.`);
 
-        // Test each player link until we find a working stream
+        let streamCount = 0;
+
+        // Process ALL player links to collect every valid stream
         for (const playerHref of uniquePlayerHrefs) {
           const playerUrl = new URL(playerHref, eventPage.url()).href;
           const streamPage = await context.newPage();
@@ -82,22 +79,21 @@ export async function scrapeLiveTv(context, sourceConfig, groups, browserConfig)
             
             const streamData = await streamPromise;
             if (streamData) {
-              console.log(`[${sourceConfig.name}] HLS found: ${streamData.url}`);
+              streamCount++;
+              console.log(`[${sourceConfig.name}] HLS stream #${streamCount} found: ${streamData.url}`);
               for (const group of item.matchedGroups) {
                 streams.push({
                   group,
-                  event: item.event,
+                  event: `${item.event} (Stream ${streamCount})`,
                   source: sourceConfig.name,
                   url: streamData.url,
                   headers: streamData.headers,
                   pageUrl: playerUrl
                 });
               }
-              // Break out of the loop since we found a working stream for this event
-              break; 
             }
           } catch (err) {
-            console.log(`[${sourceConfig.name}] No stream on this player, moving to next...`);
+            console.log(`[${sourceConfig.name}] No stream on player ${playerUrl}`);
           } finally {
             await streamPage.close();
           }
