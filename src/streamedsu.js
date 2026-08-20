@@ -14,7 +14,7 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
 
   const mirrorsToTry = [sourceConfig.baseUrl, ...MIRRORS.filter(m => m !== sourceConfig.baseUrl)];
 
-  // 1. Discover matches from mirror homepages
+  // 1. Discover match events on the main page/schedule
   for (const baseUrl of mirrorsToTry) {
     console.log(`[${sourceConfig.name}] Trying mirror ${baseUrl} ...`);
     try {
@@ -50,69 +50,83 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
     }
   }
 
-  // 2. Extract streams from watch pages
+  // 2. Extract individual stream sub-routes and capture player network requests
   try {
     for (const item of eventLinksMap.values()) {
       console.log(`[${sourceConfig.name}] Match found: ${item.event}`);
       const eventPage = await context.newPage();
 
       try {
-        // Start listening for HLS network requests immediately
-        const streamPromise = waitForHlsStream(eventPage, browserConfig.streamWaitMs + 5000);
-        
         await eventPage.goto(item.href, { waitUntil: 'domcontentloaded' });
         await eventPage.waitForTimeout(2000);
 
-        // Click stream source buttons/tabs on page if present
-        const streamButtons = await eventPage.locator('button, .btn, [class*="stream"], [id*="stream"], a[href*="stream"]').all().catch(() => []);
-        for (const btn of streamButtons.slice(0, 5)) {
-          const isVisible = await btn.isVisible().catch(() => false);
-          if (isVisible) {
-            await btn.click().catch(() => {});
-            await eventPage.waitForTimeout(1000);
+        // Parse individual stream links (e.g. /watch/slug/admin/1)
+        const subStreamLinks = [];
+        const links = await eventPage.locator('a[href*="/watch/"]').all().catch(() => []);
+
+        for (const link of links) {
+          const href = await link.getAttribute('href').catch(() => null);
+          if (href) {
+            const fullUrl = new URL(href, eventPage.url()).href;
+            // Target extended sub-routes (longer than main event URL)
+            if (fullUrl !== item.href && fullUrl.length > item.href.length) {
+              if (!subStreamLinks.includes(fullUrl)) {
+                subStreamLinks.push(fullUrl);
+              }
+            }
           }
         }
 
-        // Trigger play actions on any HTML5 video tags in main page or frames
-        await eventPage.evaluate(() => {
-          document.querySelectorAll('video').forEach(v => v.play().catch(() => {}));
-        }).catch(() => {});
+        console.log(`[${sourceConfig.name}] Found ${subStreamLinks.length} sub-stream routes for ${item.event}`);
 
-        let streamData = await streamPromise;
+        const targetsToProcess = subStreamLinks.length > 0 ? subStreamLinks : [item.href];
+        let streamData = null;
 
-        // Fallback: If no stream captured directly, scan and navigate all embed frames
-        if (!streamData) {
-          console.log(`[${sourceConfig.name}] Directly capturing network requests from iframe targets...`);
-          const frames = eventPage.frames();
-          
-          for (const frame of frames) {
-            const frameUrl = frame.url();
-            if (frameUrl && frameUrl !== 'about:blank' && !frameUrl.includes('google') && !frameUrl.includes('ads')) {
-              const framePage = await context.newPage();
-              try {
-                console.log(`[${sourceConfig.name}] Inspecting embed frame: ${frameUrl}`);
-                const frameStreamPromise = waitForHlsStream(framePage, browserConfig.streamWaitMs);
-                
-                await framePage.goto(frameUrl, { waitUntil: 'domcontentloaded', referrer: item.href });
-                
-                // Click play overlay if present inside embed frame
-                const playBtn = framePage.locator('.play, #play, .vjs-big-play-button, button').first();
-                if (await playBtn.isVisible().catch(() => false)) {
-                  await playBtn.click().catch(() => {});
+        for (const targetUrl of targetsToProcess.slice(0, 4)) {
+          console.log(`[${sourceConfig.name}] Navigating to stream route: ${targetUrl}`);
+          const streamPage = await context.newPage();
+
+          try {
+            const streamPromise = waitForHlsStream(streamPage, browserConfig.streamWaitMs);
+            await streamPage.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+
+            await streamPage.waitForTimeout(3000);
+
+            // Trigger play actions on video elements
+            await streamPage.evaluate(() => {
+              document.querySelectorAll('video').forEach(v => v.play().catch(() => {}));
+            }).catch(() => {});
+
+            streamData = await streamPromise;
+
+            // Check inside embedded player iframe if not captured directly
+            if (!streamData) {
+              const iframes = await streamPage.locator('iframe').all().catch(() => []);
+              for (const frame of iframes) {
+                const src = await frame.getAttribute('src').catch(() => null);
+                if (src && !src.startsWith('about:') && !src.startsWith('javascript:')) {
+                  const frameUrl = new URL(src, streamPage.url()).href;
+                  const framePage = await context.newPage();
+                  try {
+                    console.log(`[${sourceConfig.name}] Checking embed player frame: ${frameUrl}`);
+                    const framePromise = waitForHlsStream(framePage, browserConfig.streamWaitMs);
+                    await framePage.goto(frameUrl, { waitUntil: 'domcontentloaded', referrer: targetUrl });
+                    streamData = await framePromise;
+                    await framePage.close();
+                    if (streamData) break;
+                  } catch (e) {
+                    await framePage.close().catch(() => {});
+                  }
                 }
-
-                await framePage.evaluate(() => {
-                  document.querySelectorAll('video').forEach(v => v.play().catch(() => {}));
-                }).catch(() => {});
-
-                streamData = await frameStreamPromise;
-                await framePage.close();
-
-                if (streamData) break;
-              } catch (e) {
-                await framePage.close().catch(() => {});
               }
             }
+
+            await streamPage.close();
+
+            if (streamData) break;
+          } catch (err) {
+            console.log(`[${sourceConfig.name}] Error checking route ${targetUrl}:`, err.message);
+            await streamPage.close().catch(() => {});
           }
         }
 
