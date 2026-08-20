@@ -26,25 +26,34 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
 
         await page.waitForTimeout(3000);
 
-        // Scan row blocks (tr, div rows) where text and links are separated
-        const rows = await page.locator('tr, div[class*="event"], div[class*="schedule"], .row').all();
+        // Strictly target individual table rows / schedule cards to avoid grabbing wrapper containers
+        const rows = await page.locator('tbody tr, table tr, .schedule-item').all();
 
         for (const row of rows) {
           let rowText = await row.textContent().catch(() => null);
           if (!rowText) continue;
 
           rowText = rowText.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
-          if (rowText.length < 5) continue;
+
+          // Filter out header rows, empty rows, and giant container text (> 300 chars)
+          if (rowText.length < 5 || rowText.length > 300) continue;
 
           const matchedGroups = matchEvent(rowText, groups);
           if (matchedGroups.length > 0) {
+            // Find links strictly belonging to THIS row/match entry
             const rowLinks = await row.locator('a').all();
             for (const link of rowLinks) {
               const href = await link.getAttribute('href').catch(() => null);
+              const linkText = await link.textContent().catch(() => '');
+
               if (href && !href.startsWith('javascript:') && !href.startsWith('#')) {
                 const fullUrl = new URL(href, page.url()).href;
                 if (!eventLinksMap.has(fullUrl)) {
-                  eventLinksMap.set(fullUrl, { event: rowText, href: fullUrl, matchedGroups });
+                  eventLinksMap.set(fullUrl, { 
+                    event: `${rowText} [${linkText.trim()}]`, 
+                    href: fullUrl, 
+                    matchedGroups 
+                  });
                 }
               }
             }
@@ -58,7 +67,7 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
     }
 
     for (const item of eventLinksMap.values()) {
-      console.log(`[${sourceConfig.name}] Match found: ${item.event}`);
+      console.log(`[${sourceConfig.name}] Target event match: ${item.event}`);
       const eventPage = await context.newPage();
 
       try {
