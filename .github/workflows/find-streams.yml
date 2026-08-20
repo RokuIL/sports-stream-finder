@@ -7,7 +7,10 @@ on:
         description: 'Optional additional substring to search'
         required: false
         type: string
-
+# Add this permissions block:
+permissions:
+  contents: write
+  
 jobs:
   scrape-streams:
     runs-on: ubuntu-latest
