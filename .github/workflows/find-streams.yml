@@ -1,8 +1,6 @@
 name: Find Sports Streams
 
 on:
-  schedule:
-    - cron: '*/90 * * * *' # Runs every 90 minutes
   workflow_dispatch:
     inputs:
       extra_search:
@@ -30,14 +28,6 @@ jobs:
 
       - name: Run Scraper
         run: npm start
-
-      - name: Upload Debug Screenshots
-        uses: actions/upload-artifact@v4
-        if: always() 
-        with:
-          name: debug-screenshots
-          path: ./*.png
-          retention-days: 3
 
       - name: Upload Playlist Artifact
         uses: actions/upload-artifact@v4
