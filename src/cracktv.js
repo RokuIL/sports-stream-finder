@@ -1,56 +1,78 @@
 import { matchEvent } from './matcher.js';
 import { waitForHlsStream } from './browser.js';
 
+const CATEGORY_PATHS = [
+  '/categories/soccer',
+  '/categories/football',
+  '/categories/basketball',
+  '/categories/baseball',
+  '/categories/other-events'
+];
+
 export async function scrapeCrackTv(context, sourceConfig, groups, browserConfig) {
-  console.log(`[${sourceConfig.name}] Scanning ${sourceConfig.baseUrl} ...`);
+  console.log(`[${sourceConfig.name}] Starting scan across category sub-pages on ${sourceConfig.baseUrl} ...`);
   const streams = [];
   const page = await context.newPage();
+  const eventLinksMap = new Map(); // Store unique matches by absolute URL
 
   try {
-    await page.goto(sourceConfig.baseUrl, { 
-      timeout: browserConfig.pageTimeoutMs,
-      waitUntil: 'domcontentloaded' 
-    });
+    // 1. Loop through all category sub-pages to extract match links
+    for (const catPath of CATEGORY_PATHS) {
+      const categoryUrl = new URL(catPath, sourceConfig.baseUrl).href;
+      console.log(`[${sourceConfig.name}] Scanning category page: ${categoryUrl}`);
 
-    await page.waitForSelector('a', { timeout: 5000 }).catch(() => 
-      console.log(`[${sourceConfig.name}] Warning: No links loaded fast enough.`)
-    );
+      try {
+        await page.goto(categoryUrl, { 
+          timeout: browserConfig.pageTimeoutMs,
+          waitUntil: 'domcontentloaded' 
+        });
 
-    const links = await page.locator('a').all();
-    const eventLinks = [];
+        await page.waitForSelector('a', { timeout: 5000 }).catch(() => 
+          console.log(`[${sourceConfig.name}] Warning: No links loaded fast enough on ${catPath}.`)
+        );
 
-    for (const link of links) {
-      let text = await link.textContent();
-      let href = await link.getAttribute('href');
+        const links = await page.locator('a').all();
 
-      if (text && href) {
-        text = text.replace(/[\n\t\r]/g, ' ')
-                   .replace(/\s+/g, ' ')
-                   .replace(/[–—]/g, '-')
-                   .trim();
+        for (const link of links) {
+          let text = await link.textContent();
+          let href = await link.getAttribute('href');
 
-        if (text.length < 3 || href.startsWith('javascript:')) continue;
+          if (text && href) {
+            text = text.replace(/[\n\t\r]/g, ' ')
+                       .replace(/\s+/g, ' ')
+                       .replace(/[–—]/g, '-')
+                       .trim();
 
-        const matchedGroups = matchEvent(text, groups);
-        if (matchedGroups.length > 0) {
-          eventLinks.push({ event: text, href, matchedGroups });
+            if (text.length < 3 || href.startsWith('javascript:')) continue;
+
+            const matchedGroups = matchEvent(text, groups);
+            if (matchedGroups.length > 0) {
+              const absoluteUrl = new URL(href, page.url()).href;
+              if (!eventLinksMap.has(absoluteUrl)) {
+                eventLinksMap.set(absoluteUrl, { event: text, href: absoluteUrl, matchedGroups });
+              }
+            }
+          }
         }
+      } catch (catErr) {
+        console.error(`[${sourceConfig.name}] Error scanning category ${catPath}:`, catErr.message);
       }
     }
 
+    const eventLinks = Array.from(eventLinksMap.values());
+
     if (eventLinks.length === 0) {
-      console.log(`[${sourceConfig.name}] No matching events found on portal.`);
+      console.log(`[${sourceConfig.name}] No matching events found across all categories.`);
     }
 
+    // 2. Process all unique matched event pages
     for (const item of eventLinks) {
       console.log(`[${sourceConfig.name}] Match found: ${item.event}`);
       const eventPage = await context.newPage();
 
       try {
-        const urlToVisit = new URL(item.href, page.url()).href;
-        
         const streamPromise = waitForHlsStream(eventPage, browserConfig.streamWaitMs);
-        await eventPage.goto(urlToVisit, { waitUntil: 'domcontentloaded' });
+        await eventPage.goto(item.href, { waitUntil: 'domcontentloaded' });
 
         let streamData = await streamPromise;
 
@@ -87,7 +109,7 @@ export async function scrapeCrackTv(context, sourceConfig, groups, browserConfig
               source: sourceConfig.name,
               url: streamData.url,
               headers: streamData.headers,
-              pageUrl: urlToVisit
+              pageUrl: item.href
             });
           }
         } else {
