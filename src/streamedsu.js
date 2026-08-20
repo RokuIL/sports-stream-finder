@@ -18,11 +18,11 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
     console.log(`[${sourceConfig.name}] Trying mirror ${baseUrl} ...`);
     try {
       await page.goto(baseUrl, { 
-        timeout: browserConfig.pageTimeoutMs,
+        timeout: 12000,
         waitUntil: 'domcontentloaded' 
       });
 
-      await page.waitForSelector('a', { timeout: 5000 }).catch(() => {});
+      await page.waitForSelector('a', { timeout: 4000 }).catch(() => {});
 
       const links = await page.locator('a').all();
 
@@ -44,7 +44,7 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
         }
       }
 
-      if (eventLinksMap.size > 0) break; // Mirror succeeded
+      if (eventLinksMap.size > 0) break;
     } catch (err) {
       console.log(`[${sourceConfig.name}] Mirror ${baseUrl} failed:`, err.message);
     }
@@ -56,44 +56,55 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
       const eventPage = await context.newPage();
 
       try {
+        const streamPromise = waitForHlsStream(eventPage, browserConfig.streamWaitMs);
         await eventPage.goto(item.href, { waitUntil: 'domcontentloaded' });
 
-        const playerTargets = new Set([item.href]);
-        const iframes = await eventPage.locator('iframe').all().catch(() => []);
+        // Click stream option buttons if present to activate player
+        const streamBtns = await eventPage.locator('.stream-btn, button[class*="stream"], a[class*="stream"], #stream-buttons button').all().catch(() => []);
+        for (const btn of streamBtns.slice(0, 3)) {
+          await btn.click().catch(() => {});
+          await eventPage.waitForTimeout(1000);
+        }
 
-        for (const frame of iframes) {
-          const src = await frame.getAttribute('src').catch(() => null);
-          if (src && !src.startsWith('about:') && !src.startsWith('javascript:')) {
-            playerTargets.add(new URL(src, eventPage.url()).href);
+        let streamData = await streamPromise;
+
+        // Fallback to checking iFrames
+        if (!streamData) {
+          const iframes = await eventPage.locator('iframe').all().catch(() => []);
+          for (const frame of iframes) {
+            const src = await frame.getAttribute('src').catch(() => null);
+            if (src && !src.startsWith('about:') && !src.startsWith('javascript:')) {
+              const targetUrl = new URL(src, eventPage.url()).href;
+              const streamPage = await context.newPage();
+              try {
+                console.log(`[${sourceConfig.name}] Checking player frame: ${targetUrl}`);
+                const framePromise = waitForHlsStream(streamPage, browserConfig.streamWaitMs);
+                await streamPage.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+                streamData = await framePromise;
+                if (streamData) break;
+              } catch (e) {
+                // frame failed
+              } finally {
+                await streamPage.close();
+              }
+            }
           }
         }
 
-        for (const targetUrl of playerTargets) {
-          const streamPage = await context.newPage();
-          try {
-            console.log(`[${sourceConfig.name}] Checking player: ${targetUrl}`);
-            const streamPromise = waitForHlsStream(streamPage, browserConfig.streamWaitMs);
-            await streamPage.goto(targetUrl, { waitUntil: 'domcontentloaded' });
-
-            const streamData = await streamPromise;
-            if (streamData) {
-              console.log(`[${sourceConfig.name}] HLS stream found: ${streamData.url}`);
-              for (const group of item.matchedGroups) {
-                streams.push({
-                  group,
-                  event: item.event,
-                  source: sourceConfig.name,
-                  url: streamData.url,
-                  headers: streamData.headers,
-                  pageUrl: targetUrl
-                });
-              }
-            }
-          } catch (err) {
-            console.log(`[${sourceConfig.name}] No stream on target ${targetUrl}`);
-          } finally {
-            await streamPage.close();
+        if (streamData) {
+          console.log(`[${sourceConfig.name}] HLS stream found: ${streamData.url}`);
+          for (const group of item.matchedGroups) {
+            streams.push({
+              group,
+              event: item.event,
+              source: sourceConfig.name,
+              url: streamData.url,
+              headers: streamData.headers,
+              pageUrl: item.href
+            });
           }
+        } else {
+          console.log(`[${sourceConfig.name}] No HLS stream detected for ${item.event}`);
         }
       } catch (err) {
         console.error(`[${sourceConfig.name}] Error processing event ${item.event}:`, err.message);
