@@ -67,7 +67,7 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
       }
     }
 
-    // Process matched channel pages and click all player buttons
+    // Process matched channel pages and extract all player URLs
     for (const item of eventLinksMap.values()) {
       console.log(`[${sourceConfig.name}] Target event match: ${item.event}`);
       const eventPage = await context.newPage();
@@ -76,12 +76,18 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
         await eventPage.goto(item.href, { waitUntil: 'domcontentloaded' });
         await eventPage.waitForTimeout(2000);
 
-        // Find server/player switch buttons on the page (e.g. "Server 1", "Server 2")
-        const serverButtons = await eventPage.locator('button[class*="server"], .btn-server, a[href*="stream"], .player-servers button, .servers div').all().catch(() => []);
-
-        // Build list of target frames/pages to inspect
         const targetsToScan = new Set([item.href]);
 
+        // 1. Extract player links directly from button data-url attributes
+        const playerButtons = await eventPage.locator('button.player-btn, button[data-url]').all().catch(() => []);
+        for (const btn of playerButtons) {
+          const dataUrl = await btn.getAttribute('data-url').catch(() => null);
+          if (dataUrl && !dataUrl.startsWith('javascript:')) {
+            targetsToScan.add(new URL(dataUrl, eventPage.url()).href);
+          }
+        }
+
+        // 2. Extract initial fallback iframe URLs
         const mainIframes = await eventPage.locator('iframe').all().catch(() => []);
         for (const frame of mainIframes) {
           const src = await frame.getAttribute('src').catch(() => null);
@@ -90,24 +96,9 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
           }
         }
 
-        // If server buttons exist, click each to register new dynamic iframes/streams
-        if (serverButtons.length > 0) {
-          console.log(`[${sourceConfig.name}] Found ${serverButtons.length} player server buttons. Clicking...`);
-          for (const btn of serverButtons) {
-            await btn.click().catch(() => {});
-            await eventPage.waitForTimeout(1500);
+        console.log(`[${sourceConfig.name}] Found ${targetsToScan.size} player targets for ${item.event}`);
 
-            const dynamicIframes = await eventPage.locator('iframe').all().catch(() => []);
-            for (const frame of dynamicIframes) {
-              const src = await frame.getAttribute('src').catch(() => null);
-              if (src && !src.startsWith('about:') && !src.startsWith('javascript:')) {
-                targetsToScan.add(new URL(src, eventPage.url()).href);
-              }
-            }
-          }
-        }
-
-        // Scan all target players without breaking early
+        // 3. Scan each target player page without breaking early
         for (const targetUrl of targetsToScan) {
           const streamPage = await context.newPage();
           try {
