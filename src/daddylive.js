@@ -7,6 +7,51 @@ const SCHEDULE_PATHS = [
   '/schedule/schedule-stream.php'
 ];
 
+/**
+ * Validates whether a target URL is a legitimate player page or frame,
+ * excluding chat embeds, ad banners, and non-player domains.
+ */
+function isValidPlayerUrl(urlStr) {
+  try {
+    const parsed = new URL(urlStr);
+    const href = parsed.href.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+
+    // 1. Blacklist known non-player domains and files
+    if (
+      parsed.hostname.includes('chatango.com') ||
+      href.includes('adbanner') ||
+      href.includes('banner') ||
+      href.includes('chat') ||
+      href.includes('pop') ||
+      href.endsWith('.png') ||
+      href.endsWith('.jpg') ||
+      href.endsWith('.gif')
+    ) {
+      return false;
+    }
+
+    // 2. Allow valid stream/player path structures or query params
+    const isValidPath =
+      pathname.includes('/stream/') ||
+      pathname.includes('/cast/') ||
+      pathname.includes('/watch/') ||
+      pathname.includes('/plus/') ||
+      pathname.includes('/casting/') ||
+      pathname.includes('/player/') ||
+      pathname.includes('/hub/') ||
+      pathname.includes('watch.php') ||
+      pathname.includes('stream.php') ||
+      pathname.includes('player.php') ||
+      pathname.includes('embed.php') ||
+      parsed.searchParams.has('id');
+
+    return isValidPath;
+  } catch {
+    return false;
+  }
+}
+
 export async function scrapeDaddyLive(context, sourceConfig, groups, browserConfig) {
   console.log(`[${sourceConfig.name}] Scanning schedule on ${sourceConfig.baseUrl} ...`);
   const streams = [];
@@ -67,7 +112,7 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
       }
     }
 
-    // Process matched channel pages and extract all player URLs
+    // Process matched channel pages and extract valid player URLs
     for (const item of eventLinksMap.values()) {
       console.log(`[${sourceConfig.name}] Target event match: ${item.event}`);
       const eventPage = await context.newPage();
@@ -76,29 +121,37 @@ export async function scrapeDaddyLive(context, sourceConfig, groups, browserConf
         await eventPage.goto(item.href, { waitUntil: 'domcontentloaded' });
         await eventPage.waitForTimeout(2000);
 
-        const targetsToScan = new Set([item.href]);
+        const rawTargets = new Set();
 
-        // 1. Extract player links directly from button data-url attributes
+        // Include landing channel URL if it qualifies
+        if (isValidPlayerUrl(item.href)) {
+          rawTargets.add(item.href);
+        }
+
+        // 1. Extract player links from button data-url attributes
         const playerButtons = await eventPage.locator('button.player-btn, button[data-url]').all().catch(() => []);
         for (const btn of playerButtons) {
           const dataUrl = await btn.getAttribute('data-url').catch(() => null);
           if (dataUrl && !dataUrl.startsWith('javascript:')) {
-            targetsToScan.add(new URL(dataUrl, eventPage.url()).href);
+            rawTargets.add(new URL(dataUrl, eventPage.url()).href);
           }
         }
 
-        // 2. Extract initial fallback iframe URLs
+        // 2. Extract fallback iframe URLs
         const mainIframes = await eventPage.locator('iframe').all().catch(() => []);
         for (const frame of mainIframes) {
           const src = await frame.getAttribute('src').catch(() => null);
           if (src && !src.startsWith('about:') && !src.startsWith('javascript:')) {
-            targetsToScan.add(new URL(src, eventPage.url()).href);
+            rawTargets.add(new URL(src, eventPage.url()).href);
           }
         }
 
-        console.log(`[${sourceConfig.name}] Found ${targetsToScan.size} player targets for ${item.event}`);
+        // Filter extracted targets using isValidPlayerUrl
+        const targetsToScan = Array.from(rawTargets).filter(isValidPlayerUrl);
 
-        // 3. Scan each target player page without breaking early
+        console.log(`[${sourceConfig.name}] Found ${targetsToScan.length} valid player targets for ${item.event}`);
+
+        // 3. Scan each valid player target page
         for (const targetUrl of targetsToScan) {
           const streamPage = await context.newPage();
           try {
