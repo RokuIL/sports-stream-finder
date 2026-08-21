@@ -1,5 +1,13 @@
 #EXTM3U
-#EXTINF:-1 tvg-id="⚾ 🇺🇸 mlb : milwaukee brewers 🇺🇸 vs seattle mariners 🇺🇸 18:10 [MLB League Pass] (DaddyLive)" tvg-name="⚾ 🇺🇸 mlb : milwaukee brewers 🇺🇸 vs seattle mariners 🇺🇸 18:10 [MLB League Pass] (DaddyLive)" tvg-provider="Text" group-title="Seattle", ⚾ 🇺🇸 mlb : milwaukee brewers 🇺🇸 vs seattle mariners 🇺🇸 18:10 [MLB League Pass] (DaddyLive)
-https://xameleon.phantemlis.top/one/secure/8a6d39da81a483664d683da7f987ce69/1787288983/premium14/index.m3u8|Referer=https://hamis.romponalis.st/
-#EXTINF:-1 tvg-id="⚾ 🇺🇸 mlb : milwaukee brewers 🇺🇸 vs seattle mariners 🇺🇸 18:10 [MLB League Pass] (DaddyLive)" tvg-name="⚾ 🇺🇸 mlb : milwaukee brewers 🇺🇸 vs seattle mariners 🇺🇸 18:10 [MLB League Pass] (DaddyLive)" tvg-provider="Text" group-title="Seattle", ⚾ 🇺🇸 mlb : milwaukee brewers 🇺🇸 vs seattle mariners 🇺🇸 18:10 [MLB League Pass] (DaddyLive)
-https://xameleon.phantemlis.top/one/secure/860210c068ab8c9740af96251022c91f/1787289004/premium14/index.m3u8|Referer=https://hamis.romponalis.st/
+#EXTINF:-1 tvg-logo="https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Mariners.png" group-title="Seattle",⚾ 🇺🇸 mlb : seattle mariners 🇺🇸 vs chicago cubs 🇺🇸 02:10 [MLB League Pass] (DaddyLive)
+#EXTVLCOPT:http-referrer=https://hamis.romponalis.st/
+https://xameleon.phantemlis.top/one/secure/3e81bc2a06bd07c24f47fb54a3824ebc/1787361225/premium18/index.m3u8
+#EXTINF:-1 tvg-logo="https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Mariners.png" group-title="Seattle",⚾ 🇺🇸 mlb : seattle mariners 🇺🇸 vs chicago cubs 🇺🇸 02:10 [MLB League Pass] (DaddyLive)
+#EXTVLCOPT:http-referrer=https://hamis.romponalis.st/
+https://xameleon.phantemlis.top/one/secure/e1fce3dc4bb12ba3c972090d77536193/1787361246/premium18/index.m3u8
+#EXTINF:-1 tvg-logo="https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Mariners.png" group-title="Seattle",⚾ 🇺🇸 mlb : seattle mariners 🇺🇸 vs chicago cubs 🇺🇸 02:10 [Marquee Sports Network USA] (DaddyLive)
+#EXTVLCOPT:http-referrer=https://hamis.romponalis.st/
+https://xameleon.phantemlis.top/five/secure/b08a0289394ba22a603fe892532594ff/1787361310/premium770/index.m3u8
+#EXTINF:-1 tvg-logo="https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Mariners.png" group-title="Seattle",⚾ 🇺🇸 mlb : seattle mariners 🇺🇸 vs chicago cubs 🇺🇸 02:10 [Marquee Sports Network USA] (DaddyLive)
+#EXTVLCOPT:http-referrer=https://hamis.romponalis.st/
+https://xameleon.phantemlis.top/five/secure/23cad71e37ebb8b4fe18d29f68285e80/1787361331/premium770/index.m3u8
