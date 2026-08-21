@@ -1,16 +1,17 @@
 import fs from 'node:fs/promises';
 
 /**
- * Validates whether an HLS stream URL is active and prints detailed debug metadata.
+ * Validates whether an HLS stream URL is active from a stateless request.
  */
 async function verifyStreamUrl(stream, timeoutMs = 5000) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  // Normalize header names for consistency
   const rawHeaders = stream.headers || {};
+  
   const requestHeaders = {
     'User-Agent': rawHeaders['user-agent'] || rawHeaders['User-Agent'] || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Accept': '*/*',
   };
 
   const referer = rawHeaders['referer'] || rawHeaders['Referer'] || rawHeaders['referrer'];
@@ -18,11 +19,6 @@ async function verifyStreamUrl(stream, timeoutMs = 5000) {
 
   if (referer) requestHeaders['Referer'] = referer;
   if (origin) requestHeaders['Origin'] = origin;
-
-  console.log(`\n--------------------------------------------------`);
-  console.log(`[Validator] Testing Stream: ${stream.event} (${stream.source})`);
-  console.log(`[Validator] Target URL: ${stream.url}`);
-  console.log(`[Validator] Request Headers:`, JSON.stringify(requestHeaders, null, 2));
 
   try {
     const response = await fetch(stream.url, {
@@ -33,45 +29,31 @@ async function verifyStreamUrl(stream, timeoutMs = 5000) {
 
     clearTimeout(timeoutId);
 
-    console.log(`[Validator] Response Status: ${response.status} ${response.statusText}`);
-    console.log(`[Validator] Response Content-Type: ${response.headers.get('content-type')}`);
-
     if (!response.ok) {
-      console.warn(`[Validator] RESULT: FAILED (HTTP Status ${response.status})`);
-      console.log(`--------------------------------------------------`);
+      console.warn(`[Validator] FAILED (HTTP ${response.status}): ${stream.url}`);
       return false;
     }
 
     const textSample = await response.text();
-    const cleanSample = textSample.trim();
-
-    if (cleanSample.startsWith('#EXTM3U')) {
-      console.log(`[Validator] RESULT: SUCCESS (Valid HLS Manifest)`);
-      console.log(`--------------------------------------------------`);
+    if (textSample.trim().startsWith('#EXTM3U')) {
+      console.log(`[Validator] PASSED: ${stream.event} (${stream.source})`);
       return true;
     }
 
-    console.warn(`[Validator] RESULT: FAILED (Non-HLS Body Received)`);
-    console.log(`[Validator] Body Sample (First 150 chars):\n${cleanSample.substring(0, 150)}`);
-    console.log(`--------------------------------------------------`);
+    console.warn(`[Validator] FAILED (Not an M3U8 manifest): ${stream.url}`);
     return false;
-
   } catch (err) {
     clearTimeout(timeoutId);
-    const errorMsg = err.name === 'AbortError' ? `Timeout after ${timeoutMs}ms` : err.message;
-    console.warn(`[Validator] RESULT: FAILED (${errorMsg})`);
-    console.log(`--------------------------------------------------`);
+    console.warn(`[Validator] FAILED (${err.name === 'AbortError' ? 'Timeout' : err.message}): ${stream.url}`);
     return false;
   }
 }
 
 /**
- * Formats valid streams using pipe (|) query syntax and outputs the playlist.
+ * Writes validated streams using Roku pipe (|) syntax.
  */
 export async function generateM3u8Output(streams, filePath) {
-  console.log(`\n==================================================`);
-  console.log(`Starting validation for ${streams.length} candidate streams...`);
-  console.log(`==================================================`);
+  console.log(`\nStarting stream verification...`);
 
   const validationResults = await Promise.all(
     streams.map(async (stream) => {
@@ -81,10 +63,7 @@ export async function generateM3u8Output(streams, filePath) {
   );
 
   const validStreams = validationResults.filter(Boolean);
-
-  console.log(`\n==================================================`);
-  console.log(`Validation Complete: ${validStreams.length}/${streams.length} streams playable.`);
-  console.log(`==================================================\n`);
+  console.log(`\nVerification Complete: ${validStreams.length}/${streams.length} streams passed.\n`);
 
   let content = '#EXTM3U\n';
 
@@ -109,7 +88,6 @@ export async function generateM3u8Output(streams, filePath) {
 
     let finalUrl = stream.url;
 
-    // Append headers using pipe (|) syntax for Roku
     if (stream.headers) {
       const referer = stream.headers['referer'] || stream.headers['Referer'] || stream.headers['referrer'];
       const userAgent = stream.headers['user-agent'] || stream.headers['User-Agent'];
