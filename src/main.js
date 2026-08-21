@@ -7,6 +7,9 @@ import { scrapeStreamedSu } from './streamedsu.js';
 import { scrapeDaddyLive } from './daddylive.js';
 import { scrapeVipLeague } from './vipleague.js';
 
+// Import playlist generator with validator from playlist.js
+import { generateM3u8Output } from './playlist.js';
+
 // Resolve streams.json path dynamically relative to src/main.js
 const CONFIG_PATH = new URL('../config/streams.json', import.meta.url);
 
@@ -61,34 +64,10 @@ async function main() {
 
   console.log(`\nAll scrapers finished. Total combined streams found: ${allStreams.length}`);
 
-  // Write output file
+  // Validate streams and write output playlist
   const outputPath = new URL(`../${config.output.file}`, import.meta.url);
   await generateM3u8Output(allStreams, outputPath);
   console.log(`Successfully generated ${config.output.file}`);
-}
-
-async function generateM3u8Output(streams, filePath) {
-  let content = '#EXTM3U\n';
-
-  for (const stream of streams) {
-    const groupName = stream.group?.name || 'Live Sports';
-    const logo = stream.group?.logo || '';
-
-    content += `#EXTINF:-1 tvg-logo="${logo}" group-title="${groupName}",${stream.event} (${stream.source})\n`;
-
-    if (stream.headers && Object.keys(stream.headers).length > 0) {
-      if (stream.headers['user-agent']) {
-        content += `#EXTVLCOPT:http-user-agent=${stream.headers['user-agent']}\n`;
-      }
-      if (stream.headers['referrer'] || stream.headers['referer']) {
-        content += `#EXTVLCOPT:http-referrer=${stream.headers['referrer'] || stream.headers['referer']}\n`;
-      }
-    }
-
-    content += `${stream.url}\n`;
-  }
-
-  await fs.writeFile(filePath, content, 'utf-8');
 }
 
 main().catch(console.error);
