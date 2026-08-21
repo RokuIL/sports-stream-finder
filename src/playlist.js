@@ -1,44 +1,84 @@
-import fs from 'fs';
+import fs from 'node:fs/promises';
 
-export function generatePlaylist(streams, outputPath) {
-  let content = '#EXTM3U\n';
+/**
+ * Checks if a stream URL returns HTTP 200 and a valid M3U8 manifest.
+ */
+async function verifyStreamUrl(stream, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-  for (const stream of streams) {
-    const cleanEventName = (stream.event || 'Live Event')
-      .replace(/^\d{1,2}:\d{2}\s*/, '')
-      .trim();
+  try {
+    const headers = { ...stream.headers };
 
-    const sourceName = stream.source ? stream.source.trim() : '';
-    const displayName = sourceName ? `${cleanEventName} (${sourceName})` : cleanEventName;
-
-    let groupTitle = 'Sports';
-    if (typeof stream.group === 'string') {
-      groupTitle = stream.group;
-    } else if (stream.group && typeof stream.group === 'object') {
-      groupTitle = stream.group.name || stream.group.title || stream.group.id || 'Sports';
+    // Set fallback User-Agent if none exists
+    if (!headers['user-agent'] && !headers['User-Agent']) {
+      headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
     }
 
-    content += `#EXTINF:-1 tvg-id="${displayName}" tvg-name="${displayName}" tvg-provider="Text" group-title="${groupTitle}", ${displayName}\n`;
+    const response = await fetch(stream.url, {
+      method: 'GET',
+      headers,
+      signal: controller.signal,
+    });
 
-    let finalUrl = stream.url;
+    clearTimeout(timeoutId);
 
-    // Append headers using pipe (|) query syntax
-    if (stream.headers) {
-      const referer = stream.headers['referer'] || stream.headers['Referer'];
-      const origin = stream.headers['origin'] || stream.headers['Origin'];
+    if (!response.ok) {
+      console.warn(`[StreamValidator] FAILED (${response.status} ${response.statusText}): ${stream.url}`);
+      return false;
+    }
 
-      const headerParams = [];
-      if (referer) headerParams.push(`Referer=${referer}`);
-      if (origin) headerParams.push(`Origin=${origin}`);
+    // Read initial body content to ensure it's HLS data, not HTML/error page
+    const textSample = await response.text();
+    if (textSample.trim().startsWith('#EXTM3U')) {
+      return true;
+    }
 
-      if (headerParams.length > 0) {
-        finalUrl += `|${headerParams.join('&')}`;
+    console.warn(`[StreamValidator] FAILED (Response was not a valid M3U8 manifest): ${stream.url}`);
+    return false;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    console.warn(`[StreamValidator] FAILED (${err.name === 'AbortError' ? 'Timeout' : err.message}): ${stream.url}`);
+    return false;
+  }
+}
+
+/**
+ * Validates candidate streams and writes valid ones to the playlist output file.
+ */
+export async function generateM3u8Output(streams, filePath) {
+  console.log(`\n[StreamValidator] Validating ${streams.length} candidate streams for Roku compatibility...`);
+
+  // Test all streams in parallel
+  const validationResults = await Promise.all(
+    streams.map(async (stream) => {
+      const isValid = await verifyStreamUrl(stream);
+      return isValid ? stream : null;
+    })
+  );
+
+  const validStreams = validationResults.filter(Boolean);
+  console.log(`[StreamValidator] ${validStreams.length}/${streams.length} streams passed validation.\n`);
+
+  let content = '#EXTM3U\n';
+
+  for (const stream of validStreams) {
+    const groupName = stream.group?.name || 'Live Sports';
+    const logo = stream.group?.logo || '';
+
+    content += `#EXTINF:-1 tvg-logo="${logo}" group-title="${groupName}",${stream.event} (${stream.source})\n`;
+
+    if (stream.headers && Object.keys(stream.headers).length > 0) {
+      if (stream.headers['user-agent'] || stream.headers['User-Agent']) {
+        content += `#EXTVLCOPT:http-user-agent=${stream.headers['user-agent'] || stream.headers['User-Agent']}\n`;
+      }
+      if (stream.headers['referrer'] || stream.headers['referer']) {
+        content += `#EXTVLCOPT:http-referrer=${stream.headers['referrer'] || stream.headers['referer']}\n`;
       }
     }
 
-    content += `${finalUrl}\n`;
+    content += `${stream.url}\n`;
   }
 
-  fs.writeFileSync(outputPath, content, 'utf-8');
-  console.log(`Playlist successfully generated at ${outputPath}`);
+  await fs.writeFile(filePath, content, 'utf-8');
 }
