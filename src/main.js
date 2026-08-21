@@ -1,13 +1,12 @@
 import fs from 'node:fs/promises';
 import { chromium } from 'playwright';
 
-// Import individual scrapers
-import { scrapeLiveTv } from './scrapers/livetv.js';
-import { scrapeStreamedSu } from './scrapers/streamedsu.js';
-import { scrapeDaddyLive } from './scrapers/daddylive.js';
-import { scrapeVipLeague } from './scrapers/vipleague.js';
+// Corrected relative imports matching your flat src/ directory
+import { scrapeLiveTv } from './livetv.js';
+import { scrapeStreamedSu } from './streamedsu.js';
+import { scrapeDaddyLive } from './daddylive.js';
+import { scrapeVipLeague } from './vipleague.js';
 
-// Map config "type" to scraper function handlers
 const SCRAPER_MAP = {
   livetv: scrapeLiveTv,
   streamedsu: scrapeStreamedSu,
