@@ -1,6 +1,9 @@
 import fs from 'node:fs/promises';
 import { chromium } from 'playwright';
 
+// Resolve config path relative to main.js directory location
+const CONFIG_PATH = new URL('../config/config.json', import.meta.url);
+
 // Corrected relative imports matching your flat src/ directory
 import { scrapeLiveTv } from './livetv.js';
 import { scrapeStreamedSu } from './streamedsu.js';
@@ -15,7 +18,7 @@ const SCRAPER_MAP = {
 };
 
 async function main() {
-  const config = JSON.parse(await fs.readFile('../config/config.json', 'utf-8'));
+  const config = JSON.parse(await fs.readFile(CONFIG_PATH, 'utf-8'));
   const browser = await chromium.launch({ headless: config.browser.headless });
   
   // Isolate each scraper in its own BrowserContext to prevent cookie/session leakage
@@ -75,9 +78,6 @@ async function generateM3u8Output(streams, filePath) {
     
     // Add custom HTTP headers if present (e.g., Referer or User-Agent required by video player)
     if (stream.headers && Object.keys(stream.headers).length > 0) {
-      const headerString = Object.entries(stream.headers)
-        .map(([k, v]) => `${k}=${v}`)
-        .join('&');
       content += `#EXTVLCOPT:http-user-agent=${stream.headers['user-agent'] || ''}\n`;
     }
     
