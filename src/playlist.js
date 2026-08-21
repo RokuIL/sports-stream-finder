@@ -1,6 +1,19 @@
 import fs from 'node:fs/promises';
 
 /**
+ * Strips all characters except English letters, Hebrew letters, and spaces.
+ */
+function sanitizeTitle(text) {
+  if (!text) return '';
+  return text
+    // Replace non-alphabetical (English & Hebrew) characters with space
+    .replace(/[^a-zA-Z\u0590-\u05FF\s]/g, ' ')
+    // Collapse multiple spaces into a single space
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Validates whether an HLS stream URL is active from a stateless request.
  */
 async function verifyStreamUrl(stream, timeoutMs = 5000) {
@@ -50,7 +63,7 @@ async function verifyStreamUrl(stream, timeoutMs = 5000) {
 }
 
 /**
- * Writes validated streams using Roku pipe (|) syntax.
+ * Writes validated streams using Roku pipe (|) syntax with sanitized EXTINF tags.
  */
 export async function generateM3u8Output(streams, filePath) {
   console.log(`\nStarting stream verification...`);
@@ -68,23 +81,27 @@ export async function generateM3u8Output(streams, filePath) {
   let content = '#EXTM3U\n';
 
   for (const stream of validStreams) {
-    const cleanEventName = (stream.event || 'Live Event')
+    const rawEventName = (stream.event || 'Live Event')
       .replace(/^\d{1,2}:\d{2}\s*/, '')
       .trim();
 
-    const sourceName = stream.source ? stream.source.trim() : '';
-    const displayName = sourceName ? `${cleanEventName} (${sourceName})` : cleanEventName;
+    const rawSourceName = stream.source ? stream.source.trim() : '';
+    const rawDisplayName = rawSourceName ? `${rawEventName} ${rawSourceName}` : rawEventName;
+
+    // Sanitize title: English & Hebrew alphabetic characters only
+    const cleanDisplayName = sanitizeTitle(rawDisplayName);
 
     let groupTitle = 'Sports';
     if (typeof stream.group === 'string') {
-      groupTitle = stream.group;
+      groupTitle = sanitizeTitle(stream.group);
     } else if (stream.group && typeof stream.group === 'object') {
-      groupTitle = stream.group.name || stream.group.title || stream.group.id || 'Sports';
+      groupTitle = sanitizeTitle(stream.group.name || stream.group.title || stream.group.id || 'Sports');
     }
 
     const logo = stream.group?.logo || '';
 
-    content += `#EXTINF:-1 tvg-id="${displayName}" tvg-name="${displayName}" tvg-logo="${logo}" group-title="${groupTitle}", ${displayName}\n`;
+    // Formatted with tvg-provider="Text" and sanitized alphabetical names
+    content += `#EXTINF:-1 tvg-id="${cleanDisplayName}" tvg-name="${cleanDisplayName}" tvg-logo="${logo}" tvg-provider="Text" group-title="${groupTitle}", ${cleanDisplayName}\n`;
 
     let finalUrl = stream.url;
 
