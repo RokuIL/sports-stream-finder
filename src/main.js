@@ -15,7 +15,7 @@ const SCRAPER_MAP = {
 };
 
 async function main() {
-  const config = JSON.parse(await fs.readFile('./config.json', 'utf-8'));
+  const config = JSON.parse(await fs.readFile('../config/config.json', 'utf-8'));
   const browser = await chromium.launch({ headless: config.browser.headless });
   
   // Isolate each scraper in its own BrowserContext to prevent cookie/session leakage
