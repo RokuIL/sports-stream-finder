@@ -24,7 +24,7 @@
       "name": "DaddyLive",
       "type": "daddylive",
       "baseUrl": "https://dlhd.pk/",
-      "enabled": true
+      "enabled": false
     },
     {
       "name": "VipLeague",
