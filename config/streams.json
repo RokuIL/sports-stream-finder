@@ -54,6 +54,13 @@
         "Sounders"
       ],
       "logo": "https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Sounders.png"
+    },
+    {
+      "name": "Seattle",
+      "matches": [
+        "Seattle"
+      ],
+      "logo": "https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Sports.png"
     }
   ]
 }
