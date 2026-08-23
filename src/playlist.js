@@ -1,14 +1,22 @@
 import fs from 'node:fs/promises';
 
 /**
+ * List of URL substrings/domains to ignore completely.
+ * Add any keywords or domains here that should bypass verification.
+ */
+const STREAM_BLACKLIST = [
+  'xameleon',
+  'vtoc.live',
+  'zohanayaan.com'
+];
+
+/**
  * Strips all characters except English letters, Hebrew letters, and spaces.
  */
 function sanitizeTitle(text) {
   if (!text) return '';
   return text
-    // Replace non-alphabetical (English & Hebrew) characters with space
     .replace(/[^a-zA-Z\u0590-\u05FF\s]/g, ' ')
-    // Collapse multiple spaces into a single space
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -17,6 +25,16 @@ function sanitizeTitle(text) {
  * Validates whether an HLS stream URL is active from a stateless request.
  */
 async function verifyStreamUrl(stream, timeoutMs = 5000) {
+  // Check stream URL against blacklist before issuing any HTTP request
+  const matchedKeyword = STREAM_BLACKLIST.find((keyword) =>
+    stream.url.toLowerCase().includes(keyword.toLowerCase())
+  );
+
+  if (matchedKeyword) {
+    console.warn(`[Validator] SKIPPED (Blacklisted keyword "${matchedKeyword}"): ${stream.url}`);
+    return false;
+  }
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -88,7 +106,6 @@ export async function generateM3u8Output(streams, filePath) {
     const rawSourceName = stream.source ? stream.source.trim() : '';
     const rawDisplayName = rawSourceName ? `${rawEventName} ${rawSourceName}` : rawEventName;
 
-    // Sanitize title: English & Hebrew alphabetic characters only
     const cleanDisplayName = sanitizeTitle(rawDisplayName);
 
     let groupTitle = 'Sports';
@@ -100,7 +117,6 @@ export async function generateM3u8Output(streams, filePath) {
 
     const logo = stream.group?.logo || '';
 
-    // Formatted with tvg-provider="Text" and sanitized alphabetical names
     content += `#EXTINF:-1 tvg-id="${cleanDisplayName}" tvg-name="${cleanDisplayName}" tvg-logo="${logo}" tvg-provider="Text" group-title="${groupTitle}", ${cleanDisplayName}\n`;
 
     let finalUrl = stream.url;
