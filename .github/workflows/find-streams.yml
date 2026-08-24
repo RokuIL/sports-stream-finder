@@ -24,15 +24,15 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install chromium --with-deps
 
-      - name: Run Scraper Loop (15 min intervals for 3 hours)
+      - name: Run Scraper Loop (20 min intervals for 3 hours)
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          # 12 iterations x 15 min = 180 minutes (3 hours)
-          for i in {1..12}; do
+          # 9 iterations x 20 min = 180 minutes (3 hours)
+          for i in {1..9}; do
             echo "=========================================="
-            echo " Starting Scrape Run $i of 12 at $(date)"
+            echo " Starting Scrape Run $i of 9 at $(date)"
             echo "=========================================="
             
             npm start
@@ -41,13 +41,13 @@ jobs:
             git commit -m "Update live streams playlist (Run $i)" || echo "No changes to commit"
             git push || echo "Push failed or nothing to push"
 
-            if [ $i -lt 12 ]; then
-              echo "Run $i finished. Waiting 15 minutes for next run..."
+            if [ $i -lt 9 ]; then
+              echo "Run $i finished. Waiting 20 minutes for next run..."
               
-              # Loop 15 times with a 60-second sleep to provide a live log heartbeat
-              for min in {1..15}; do
+              # Loop 20 times with a 60-second sleep to provide a live log heartbeat
+              for min in {1..20}; do
                 sleep 60
-                echo "  [Heartbeat] Slept $min / 15 minutes..."
+                echo "  [Heartbeat] Slept $min / 20 minutes..."
               done
             fi
           done
