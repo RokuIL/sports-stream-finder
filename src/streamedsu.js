@@ -1,154 +1,175 @@
 import { matchEvent } from './matcher.js';
 import { waitForHlsStream } from './browser.js';
 
-const MIRRORS = [
-  'https://streamed.pk/',
-  'https://streamed.st/',
-  'https://streamed.su/'
-];
+// Process N events concurrently (adjust as needed; 3-5 is ideal for GitHub Actions)
+const CONCURRENCY_LIMIT = 3;
 
-export async function scrapeStreamedSu(context, sourceConfig, groups, browserConfig) {
-  const streams = [];
-  const page = await context.newPage();
-  const eventLinksMap = new Map();
+/**
+ * Helper to execute asynchronous tasks in batches to control resource usage.
+ */
+async function asyncPool(poolLimit, array, iteratorFn) {
+  const ret = [];
+  const executing = [];
+  for (const item of array) {
+    const p = Promise.resolve().then(() => iteratorFn(item, array));
+    ret.push(p);
 
-  const mirrorsToTry = [sourceConfig.baseUrl, ...MIRRORS.filter(m => m !== sourceConfig.baseUrl)];
-
-  // 1. Discover matches
-  for (const baseUrl of mirrorsToTry) {
-    console.log(`[${sourceConfig.name}] Trying mirror ${baseUrl} ...`);
-    try {
-      await page.goto(baseUrl, { timeout: 12000, waitUntil: 'domcontentloaded' });
-      await page.waitForSelector('a', { timeout: 4000 }).catch(() => {});
-      const links = await page.locator('a').all();
-
-      for (const link of links) {
-        let text = await link.textContent().catch(() => null);
-        let href = await link.getAttribute('href').catch(() => null);
-
-        if (text && href) {
-          text = text.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
-          if (text.length < 3 || href.startsWith('javascript:')) continue;
-
-          const matchedGroups = matchEvent(text, groups);
-          if (matchedGroups.length > 0) {
-            const fullUrl = new URL(href, page.url()).href;
-            if (!eventLinksMap.has(fullUrl)) {
-              eventLinksMap.set(fullUrl, { event: text, href: fullUrl, matchedGroups });
-            }
-          }
-        }
+    if (poolLimit <= array.length) {
+      const e = p.then(() => executing.splice(executing.indexOf(e), 1));
+      executing.push(e);
+      if (executing.length >= poolLimit) {
+        await Promise.race(executing);
       }
-
-      if (eventLinksMap.size > 0) break;
-    } catch (err) {
-      console.log(`[${sourceConfig.name}] Mirror ${baseUrl} failed:`, err.message);
     }
   }
+  return Promise.all(ret);
+}
 
-  // 2. Extract ALL sub-streams
+/**
+ * Blocks bloat resources (images, fonts, stylesheets, ads) to speed up page loads.
+ */
+async function configureFastPage(page) {
+  await page.route('**/*', (route) => {
+    const req = route.request();
+    const resourceType = req.resourceType();
+    const url = req.url().toLowerCase();
+
+    // Block ads, analytics, images, CSS, and web fonts
+    if (
+      resourceType === 'image' ||
+      resourceType === 'stylesheet' ||
+      resourceType === 'font' ||
+      url.includes('google-analytics') ||
+      url.includes('doubleclick') ||
+      url.includes('chatango') ||
+      url.includes('popunder') ||
+      url.includes('adbanner')
+    ) {
+      return route.abort();
+    }
+    return route.continue();
+  });
+}
+
+export async function scrapeStreamedSu(context, sourceConfig, groups, browserConfig) {
+  console.log(`[${sourceConfig.name}] Fetching schedule from ${sourceConfig.baseUrl}...`);
+  const streams = [];
+
+  const mainPage = await context.newPage();
+  await configureFastPage(mainPage);
+
+  const matchedItems = [];
+
   try {
-    for (const item of eventLinksMap.values()) {
-      console.log(`[${sourceConfig.name}] Match found: ${item.event}`);
-      const eventPage = await context.newPage();
+    // 1. Fetch main schedule
+    await mainPage.goto(sourceConfig.baseUrl, {
+      waitUntil: 'domcontentloaded',
+      timeout: browserConfig.pageTimeoutMs,
+    });
 
-      try {
-        await eventPage.goto(item.href, { waitUntil: 'domcontentloaded' });
-        await eventPage.waitForTimeout(2000);
+    const eventElements = await mainPage.locator('a[href*="/watch/"]').all();
 
-        const subStreamLinks = [];
-        const links = await eventPage.locator('a[href*="/watch/"]').all().catch(() => []);
+    for (const el of eventElements) {
+      const href = await el.getAttribute('href').catch(() => null);
+      let title = await el.textContent().catch(() => '');
 
-        for (const link of links) {
-          const href = await link.getAttribute('href').catch(() => null);
-          if (href) {
-            const fullUrl = new URL(href, eventPage.url()).href;
-            if (fullUrl !== item.href && fullUrl.length > item.href.length) {
-              if (!subStreamLinks.includes(fullUrl)) {
-                subStreamLinks.push(fullUrl);
-              }
-            }
-          }
-        }
+      if (!href || !title) continue;
 
-        console.log(`[${sourceConfig.name}] Found ${subStreamLinks.length} sub-stream routes for ${item.event}`);
-        const targetsToProcess = subStreamLinks.length > 0 ? subStreamLinks : [item.href];
+      title = title.replace(/[\n\t\r]/g, ' ').replace(/\s+/g, ' ').trim();
+      const matchedGroups = matchEvent(title, groups);
 
-        // Process ALL available sub-stream routes without breaking early
-        for (const targetUrl of targetsToProcess) {
-          console.log(`[${sourceConfig.name}] Navigating to stream route: ${targetUrl}`);
-          const streamPage = await context.newPage();
-
-          try {
-            const streamPromise = waitForHlsStream(streamPage, browserConfig.streamWaitMs);
-            await streamPage.goto(targetUrl, { waitUntil: 'domcontentloaded' });
-
-            // Trigger player click actions
-            const playButtons = await streamPage.locator('button, .play, #play, .vjs-big-play-button, video').all().catch(() => []);
-            for (const btn of playButtons.slice(0, 3)) {
-              await btn.click().catch(() => {});
-            }
-
-            let streamData = await streamPromise;
-
-            // Check inner iframe if stream not detected on main frame
-            if (!streamData) {
-              const iframes = await streamPage.locator('iframe').all().catch(() => []);
-              for (const frame of iframes) {
-                const src = await frame.getAttribute('src').catch(() => null);
-                if (src && !src.startsWith('about:') && !src.startsWith('javascript:')) {
-                  const frameUrl = new URL(src, streamPage.url()).href;
-                  const framePage = await context.newPage();
-                  try {
-                    const framePromise = waitForHlsStream(framePage, browserConfig.streamWaitMs);
-                    await framePage.goto(frameUrl, { waitUntil: 'domcontentloaded', referrer: targetUrl });
-                    
-                    // Click inside frame to bypass autoplay restrictions
-                    await framePage.click('body').catch(() => {});
-                    await framePage.evaluate(() => {
-                      document.querySelectorAll('video').forEach(v => v.play().catch(() => {}));
-                    }).catch(() => {});
-
-                    streamData = await framePromise;
-                    await framePage.close();
-                    if (streamData) break;
-                  } catch (e) {
-                    await framePage.close().catch(() => {});
-                  }
-                }
-              }
-            }
-
-            await streamPage.close();
-
-            if (streamData) {
-              console.log(`[${sourceConfig.name}] HLS stream found: ${streamData.url}`);
-              for (const group of item.matchedGroups) {
-                streams.push({
-                  group,
-                  event: item.event,
-                  source: sourceConfig.name,
-                  url: streamData.url,
-                  headers: streamData.headers,
-                  pageUrl: targetUrl
-                });
-              }
-            }
-          } catch (err) {
-            console.log(`[${sourceConfig.name}] Error checking route ${targetUrl}:`, err.message);
-            await streamPage.close().catch(() => {});
-          }
-        }
-      } catch (err) {
-        console.error(`[${sourceConfig.name}] Error processing event ${item.event}:`, err.message);
-      } finally {
-        await eventPage.close();
+      if (matchedGroups.length > 0) {
+        const fullUrl = new URL(href, sourceConfig.baseUrl).href;
+        matchedItems.push({
+          event: title,
+          href: fullUrl,
+          matchedGroups,
+        });
       }
     }
+
+    console.log(`[${sourceConfig.name}] Found ${matchedItems.length} matching events. Processing in parallel...`);
+
+    // 2. Process events concurrently
+    await asyncPool(CONCURRENCY_LIMIT, matchedItems, async (item) => {
+      const eventPage = await context.newPage();
+      await configureFastPage(eventPage);
+
+      try {
+        console.log(`[${sourceConfig.name}] Processing event: ${item.event}`);
+        
+        // Fast navigate without waiting for external ads to complete loading
+        await eventPage.goto(item.href, { 
+          waitUntil: 'domcontentloaded', 
+          timeout: browserConfig.pageTimeoutMs 
+        });
+
+        // Collect all stream stream buttons/links on the event page
+        const streamButtons = await eventPage.locator('a[href*="/watch/"], button[data-url]').all();
+        const targetsToScan = new Set([item.href]);
+
+        for (const btn of streamButtons) {
+          const streamHref = await btn.getAttribute('href').catch(() => null);
+          const dataUrl = await btn.getAttribute('data-url').catch(() => null);
+
+          if (streamHref && streamHref.includes('/watch/')) {
+            targetsToScan.add(new URL(streamHref, item.href).href);
+          }
+          if (dataUrl) {
+            targetsToScan.add(new URL(dataUrl, item.href).href);
+          }
+        }
+
+        // Process streams within this event concurrently
+        await Promise.all(
+          Array.from(targetsToScan).map(async (targetUrl) => {
+            const streamPage = await context.newPage();
+            await configureFastPage(streamPage);
+
+            try {
+              console.log(`[${sourceConfig.name}] Navigating to stream route: ${targetUrl}`);
+
+              // Start listening for HLS network request immediately
+              const streamPromise = waitForHlsStream(streamPage, browserConfig.streamWaitMs);
+
+              // Commit level navigation - proceeds as soon as initial HTML is received
+              await streamPage.goto(targetUrl, { 
+                waitUntil: 'commit', 
+                timeout: browserConfig.pageTimeoutMs 
+              });
+
+              const streamData = await streamPromise;
+
+              if (streamData) {
+                console.log(`[${sourceConfig.name}] HLS stream found: ${streamData.url}`);
+                for (const group of item.matchedGroups) {
+                  streams.push({
+                    group,
+                    event: item.event,
+                    source: sourceConfig.name,
+                    url: streamData.url,
+                    headers: streamData.headers,
+                    pageUrl: targetUrl,
+                  });
+                }
+              }
+            } catch (err) {
+              console.log(`[${sourceConfig.name}] Stream capture timed out for: ${targetUrl}`);
+            } finally {
+              await streamPage.close().catch(() => {});
+            }
+          })
+        );
+      } catch (err) {
+        console.error(`[${sourceConfig.name}] Error scraping ${item.event}:`, err.message);
+      } finally {
+        await eventPage.close().catch(() => {});
+      }
+    });
   } catch (err) {
-    console.error(`[${sourceConfig.name}] Error processing site:`, err.message);
+    console.error(`[${sourceConfig.name}] Error processing schedule:`, err.message);
   } finally {
-    await page.close();
+    await mainPage.close().catch(() => {});
   }
 
   return streams;
