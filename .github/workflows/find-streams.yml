@@ -24,7 +24,7 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install chromium --with-deps
 
-      - name: Run Scraper Loop (20 min intervals for 3 hours)
+      - name: Run Scraper Loop (15 min intervals for 3 hours)
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
