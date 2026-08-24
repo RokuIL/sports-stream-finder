@@ -3,10 +3,9 @@ name: Find Sports Streams
 on:
   workflow_dispatch:
 
-# Add this permissions block:
 permissions:
   contents: write
-  
+
 jobs:
   scrape-streams:
     runs-on: ubuntu-latest
@@ -25,13 +24,22 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install chromium --with-deps
 
-      - name: Run Scraper
-        run: npm start
-
-      - name: Commit and Push Playlist
+      - name: Run Scraper Loop (20 min intervals for 3 hours)
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add live.m3u8
-          git commit -m "Update live streams playlist" || echo "No changes to commit"
-          git push
+
+          # 9 iterations x 20 min = 180 minutes (3 hours)
+          for i in {1..9}; do
+            echo "=== Starting Scrape Run $i of 9 ==="
+            npm start
+
+            git add live.m3u8
+            git commit -m "Update live streams playlist (Run $i)" || echo "No changes to commit"
+            git push || echo "Push failed or nothing to push"
+
+            if [ $i -lt 9 ]; then
+              echo "Waiting 20 minutes before next run..."
+              sleep 1200
+            fi
+          done
