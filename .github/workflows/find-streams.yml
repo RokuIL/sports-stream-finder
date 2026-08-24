@@ -29,17 +29,25 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-          # 9 iterations x 20 min = 180 minutes (3 hours)
-          for i in {1..9}; do
-            echo "=== Starting Scrape Run $i of 9 ==="
+          # 12 iterations x 15 min = 180 minutes (3 hours)
+          for i in {1..12}; do
+            echo "=========================================="
+            echo " Starting Scrape Run $i of 12 at $(date)"
+            echo "=========================================="
+            
             npm start
 
             git add live.m3u8
             git commit -m "Update live streams playlist (Run $i)" || echo "No changes to commit"
             git push || echo "Push failed or nothing to push"
 
-            if [ $i -lt 9 ]; then
-              echo "Waiting 20 minutes before next run..."
-              sleep 1200
+            if [ $i -lt 12 ]; then
+              echo "Run $i finished. Waiting 15 minutes for next run..."
+              
+              # Loop 15 times with a 60-second sleep to provide a live log heartbeat
+              for min in {1..15}; do
+                sleep 60
+                echo "  [Heartbeat] Slept $min / 15 minutes..."
+              done
             fi
           done
