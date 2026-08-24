@@ -1,11 +1,10 @@
 import { matchEvent } from './matcher.js';
 import { waitForHlsStream } from './browser.js';
 
-// Process N events concurrently (adjust as needed; 3-5 is ideal for GitHub Actions)
 const CONCURRENCY_LIMIT = 3;
 
 /**
- * Helper to execute asynchronous tasks in batches to control resource usage.
+ * Executes tasks in batches to keep memory usage low while running in parallel.
  */
 async function asyncPool(poolLimit, array, iteratorFn) {
   const ret = [];
@@ -26,7 +25,8 @@ async function asyncPool(poolLimit, array, iteratorFn) {
 }
 
 /**
- * Blocks bloat resources (images, fonts, stylesheets, ads) to speed up page loads.
+ * Blocks heavy non-essential media (images, fonts, video binary files)
+ * while letting JavaScript and CSS run normally so video players work.
  */
 async function configureFastPage(page) {
   await page.route('**/*', (route) => {
@@ -34,16 +34,15 @@ async function configureFastPage(page) {
     const resourceType = req.resourceType();
     const url = req.url().toLowerCase();
 
-    // Block ads, analytics, images, CSS, and web fonts
+    // Block only images, fonts, media binaries, and clear ad network trackers
     if (
       resourceType === 'image' ||
-      resourceType === 'stylesheet' ||
       resourceType === 'font' ||
+      resourceType === 'media' ||
       url.includes('google-analytics') ||
       url.includes('doubleclick') ||
       url.includes('chatango') ||
-      url.includes('popunder') ||
-      url.includes('adbanner')
+      url.includes('popunder')
     ) {
       return route.abort();
     }
@@ -58,7 +57,7 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
   const mainPage = await context.newPage();
   await configureFastPage(mainPage);
 
-  const matchedItems = [];
+  const matchedItemsMap = new Map();
 
   try {
     // 1. Fetch main schedule
@@ -66,6 +65,8 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
       waitUntil: 'domcontentloaded',
       timeout: browserConfig.pageTimeoutMs,
     });
+
+    await mainPage.waitForTimeout(1000);
 
     const eventElements = await mainPage.locator('a[href*="/watch/"]').all();
 
@@ -80,32 +81,36 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
 
       if (matchedGroups.length > 0) {
         const fullUrl = new URL(href, sourceConfig.baseUrl).href;
-        matchedItems.push({
-          event: title,
-          href: fullUrl,
-          matchedGroups,
-        });
+        if (!matchedItemsMap.has(fullUrl)) {
+          matchedItemsMap.set(fullUrl, {
+            event: title,
+            href: fullUrl,
+            matchedGroups,
+          });
+        }
       }
     }
 
-    console.log(`[${sourceConfig.name}] Found ${matchedItems.length} matching events. Processing in parallel...`);
+    const matchedItems = Array.from(matchedItemsMap.values());
+    console.log(`[${sourceConfig.name}] Found ${matchedItems.length} matching unique events. Processing in parallel...`);
 
-    // 2. Process events concurrently
+    // 2. Process matched events concurrently
     await asyncPool(CONCURRENCY_LIMIT, matchedItems, async (item) => {
       const eventPage = await context.newPage();
       await configureFastPage(eventPage);
 
       try {
         console.log(`[${sourceConfig.name}] Processing event: ${item.event}`);
-        
-        // Fast navigate without waiting for external ads to complete loading
+
         await eventPage.goto(item.href, { 
           waitUntil: 'domcontentloaded', 
           timeout: browserConfig.pageTimeoutMs 
         });
 
-        // Collect all stream stream buttons/links on the event page
-        const streamButtons = await eventPage.locator('a[href*="/watch/"], button[data-url]').all();
+        await eventPage.waitForTimeout(1500);
+
+        // Extract sub-stream links on the event page
+        const streamButtons = await eventPage.locator('a[href*="/watch/"], button[data-url], .stream-btn').all().catch(() => []);
         const targetsToScan = new Set([item.href]);
 
         for (const btn of streamButtons) {
@@ -115,7 +120,7 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
           if (streamHref && streamHref.includes('/watch/')) {
             targetsToScan.add(new URL(streamHref, item.href).href);
           }
-          if (dataUrl) {
+          if (dataUrl && !dataUrl.startsWith('javascript:')) {
             targetsToScan.add(new URL(dataUrl, item.href).href);
           }
         }
@@ -129,12 +134,11 @@ export async function scrapeStreamedSu(context, sourceConfig, groups, browserCon
             try {
               console.log(`[${sourceConfig.name}] Navigating to stream route: ${targetUrl}`);
 
-              // Start listening for HLS network request immediately
+              // Start HLS request listener before loading the URL
               const streamPromise = waitForHlsStream(streamPage, browserConfig.streamWaitMs);
 
-              // Commit level navigation - proceeds as soon as initial HTML is received
               await streamPage.goto(targetUrl, { 
-                waitUntil: 'commit', 
+                waitUntil: 'domcontentloaded', 
                 timeout: browserConfig.pageTimeoutMs 
               });
 
