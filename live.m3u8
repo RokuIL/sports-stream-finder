@@ -1,1 +1,9 @@
 #EXTM3U
+#EXTINF:-1 tvg-id="Washington Commanders Seattle Seahawks LiveTV" tvg-name="Washington Commanders Seattle Seahawks LiveTV" tvg-logo="https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Seahawks.png" tvg-provider="Text" group-title="Seattle", Washington Commanders Seattle Seahawks LiveTV
+https://a121.azplay48.me/hls/streama268277/index.m3u8?cst=6aa5542ecb51975d3161574cb3535ce3|Referer=https%3A%2F%2Femb.apl614.online%2F
+#EXTINF:-1 tvg-id="Washington Commanders Seattle Seahawks LiveTV" tvg-name="Washington Commanders Seattle Seahawks LiveTV" tvg-logo="https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Sports.png" tvg-provider="Text" group-title="Seattle", Washington Commanders Seattle Seahawks LiveTV
+https://a121.azplay48.me/hls/streama268277/index.m3u8?cst=6aa5542ecb51975d3161574cb3535ce3|Referer=https%3A%2F%2Femb.apl614.online%2F
+#EXTINF:-1 tvg-id="Washington Commanders Seattle Seahawks LiveTV" tvg-name="Washington Commanders Seattle Seahawks LiveTV" tvg-logo="https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Seahawks.png" tvg-provider="Text" group-title="Seattle", Washington Commanders Seattle Seahawks LiveTV
+https://a119.azplay48.me/hls/streama268277/index.m3u8?cst=17b118eb526dbb3c8abe1b3f7bc8fc4b|Referer=https%3A%2F%2Femb.apl614.online%2F
+#EXTINF:-1 tvg-id="Washington Commanders Seattle Seahawks LiveTV" tvg-name="Washington Commanders Seattle Seahawks LiveTV" tvg-logo="https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Sports.png" tvg-provider="Text" group-title="Seattle", Washington Commanders Seattle Seahawks LiveTV
+https://a119.azplay48.me/hls/streama268277/index.m3u8?cst=17b118eb526dbb3c8abe1b3f7bc8fc4b|Referer=https%3A%2F%2Femb.apl614.online%2F
