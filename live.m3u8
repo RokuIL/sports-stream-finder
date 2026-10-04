@@ -1,1 +1,9 @@
 #EXTM3U
+#EXTINF:-1 tvg-id="Seattle Seahawks Los Angeles Chargers LiveTV" tvg-name="Seattle Seahawks Los Angeles Chargers LiveTV" tvg-logo="https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Seahawks.png" tvg-provider="Text" group-title="Seattle", Seattle Seahawks Los Angeles Chargers LiveTV
+https://hls.hockey.do/secure_hls.php?path=7b145bbd4bf206f377e4cb4a72e4ab03%2Findex.m3u8&e=1791146257&sig=gzuOON_7qLSBg9kAqo1tqD2O7oHxogF57aUz74GFULg|Referer=https%3A%2F%2Fmatchli.st%2F
+#EXTINF:-1 tvg-id="Seattle Seahawks Los Angeles Chargers LiveTV" tvg-name="Seattle Seahawks Los Angeles Chargers LiveTV" tvg-logo="https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Sports.png" tvg-provider="Text" group-title="Seattle", Seattle Seahawks Los Angeles Chargers LiveTV
+https://hls.hockey.do/secure_hls.php?path=7b145bbd4bf206f377e4cb4a72e4ab03%2Findex.m3u8&e=1791146257&sig=gzuOON_7qLSBg9kAqo1tqD2O7oHxogF57aUz74GFULg|Referer=https%3A%2F%2Fmatchli.st%2F
+#EXTINF:-1 tvg-id="Seattle Seahawks Los Angeles Chargers LiveTV" tvg-name="Seattle Seahawks Los Angeles Chargers LiveTV" tvg-logo="https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Seahawks.png" tvg-provider="Text" group-title="Seattle", Seattle Seahawks Los Angeles Chargers LiveTV
+https://hls.hockey.do/secure_hls.php?path=7b145bbd4bf206f377e4cb4a72e4ab03%2Findex.m3u8&e=1791146292&sig=Ft1tJbHmT8Q2MktMai3kbQofEhoPeWrJHoUOZWq__VE|Referer=https%3A%2F%2Fmatchli.st%2F
+#EXTINF:-1 tvg-id="Seattle Seahawks Los Angeles Chargers LiveTV" tvg-name="Seattle Seahawks Los Angeles Chargers LiveTV" tvg-logo="https://raw.githubusercontent.com/RokuIL/Live-From-Israel/master/Logos/Sports.png" tvg-provider="Text" group-title="Seattle", Seattle Seahawks Los Angeles Chargers LiveTV
+https://hls.hockey.do/secure_hls.php?path=7b145bbd4bf206f377e4cb4a72e4ab03%2Findex.m3u8&e=1791146292&sig=Ft1tJbHmT8Q2MktMai3kbQofEhoPeWrJHoUOZWq__VE|Referer=https%3A%2F%2Fmatchli.st%2F
